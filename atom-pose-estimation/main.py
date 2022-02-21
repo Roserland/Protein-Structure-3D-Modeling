@@ -21,14 +21,17 @@ This file is a elementary test, we will:
 """
 
 # import lib
+from traceback2 import print_tb
 from light_3DUNet import My_3D_CNN
 from cube_loader import *
+from atom_pred_visualize import plot_coords_diffs
 from torch.optim import Adam, lr_scheduler
 import os, time, datetime
 import torch.optim as optim
 import torch
 import torch.nn as nn
 import numpy as np
+
 
 # prepare environment
 gpu_id = '0'
@@ -94,6 +97,10 @@ def test(epoch, phase, model, test_loader, optimizer, _scheduler):
     n_batches = 0.0
     print("[Test/Valid] -- [Epoch: {}]".format(epoch))
 
+    gt_Ca = []; pred_Ca = []
+    gt_N  = []; pred_N = []
+    gt_C = []; pred_C = []
+    gt_O = []; pred_O = []
     for batch_idx, data in enumerate(test_loader):
         cube_data_array = data[0].to(torch.float32).to(device)
         Ca_pos = data[1].to(torch.float32).to(device)
@@ -101,6 +108,15 @@ def test(epoch, phase, model, test_loader, optimizer, _scheduler):
         C_pos = data[3].to(torch.float32).to(device)
         O_pos = data[4].to(torch.float32).to(device)
         # print(C_pos)
+        gt_Ca += data[5][:10].numpy().tolist() # .to(torch.float32).to(device)
+        gt_N  += data[6][:10].numpy().tolist() # .to(torch.float32).to(device)
+        gt_C  += data[7][:10].numpy().tolist() # .to(torch.float32).to(device)
+        gt_O  += data[8][:10].numpy().tolist() # .to(torch.float32).to(device)
+        # de_normalize
+        upper_left_corner = data[9][:10].numpy()
+        lower_right_corner = data[10][:10].numpy()
+        _offset = data[11][:10].numpy()
+
 
         Ca_output, N_output, C_output, O_output = model(cube_data_array)
         loss_Ca = loss_fn(Ca_output, Ca_pos)
@@ -109,6 +125,12 @@ def test(epoch, phase, model, test_loader, optimizer, _scheduler):
         loss_O = loss_fn(O_output, O_pos)
         loss = loss_weight[0] * loss_Ca + loss_weight[1] * loss_N + \
                loss_weight[2] * loss_C + loss_weight[3] * loss_O
+
+        # print(Ca_output.cpu().numpy().tolist())
+        pred_Ca += batch_de_normalize(Ca_output[:10].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
+        pred_N  += batch_de_normalize(N_output[:10].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
+        pred_C  += batch_de_normalize(C_output[:10].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
+        pred_O  += batch_de_normalize(O_output[:10].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
 
         # print(Ca_output)
         print("[Batch:{}] \tCa_L1:{}\tN_L1:{}\tC_L1:{}\tO_L1:{}\tloss:{}".format(
@@ -123,6 +145,11 @@ def test(epoch, phase, model, test_loader, optimizer, _scheduler):
     test_loss /= n_batches
     writelog(f_l1_loss_log, "time: {}".format(time.asctime(time.localtime(time.time()))))
     writelog(f_l1_loss_log, 'Test loss : ' + str(test_loss))
+
+    plot_coords_diffs(pred_Ca, gt_Ca, target='Ca', _type='point')
+    plot_coords_diffs(pred_N, gt_N, target='N', _type='point')
+    plot_coords_diffs(pred_C, gt_C, target='C', _type='point')
+    plot_coords_diffs(pred_O, gt_O, target='O', _type='point')
 
     return test_loss
 
@@ -151,9 +178,13 @@ if __name__ == '__main__':
     valid_set = AminoAcidDataset(index_csv='../datas/split/valid.csv', )
     test_set = AminoAcidDataset(index_csv='../datas/split/test.csv', )
 
+    test_set.set_mode(2)
+    valid_set.set_mode(2)
+
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(valid_set, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True)
+
 
     min_l1_loss = np.inf
 

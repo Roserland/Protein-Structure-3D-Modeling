@@ -98,6 +98,33 @@ def parse_offset(off_str):
     return float(x.strip()), float(y.strip()), float(z.strip())
 
 
+def de_normalize(related_pos, upper_left_corner, lower_right_corner, mrc_offset):
+    """
+    return a real pos of an atom
+    :param cube_coords: [x1, x2, y1, y2, z1, z2]
+    """
+    # [x1, x2, y1, y2, z1, z2] = cube_coords
+    # upper_left_corner = [x1, y1, z1]
+    # lower_right_corner = [x2, y2, z2]
+    cube_size = np.array(lower_right_corner) - np.array(upper_left_corner)
+    real_pos = np.array(related_pos) * cube_size + upper_left_corner
+    x, y, z = real_pos
+    _x = x/2 + mrc_offset[2]
+    _y = y/2 + mrc_offset[1]
+    _z = z/2 + mrc_offset[0]
+    return np.array([_z, _y, _x])
+
+
+def batch_de_normalize(related_pos_arr, upper_left_corner_arr, lower_right_corner_arr, mrc_offset_arr):
+    length = related_pos_arr.shape[0]
+
+    res = []
+    for i in range(length):
+        _coord = de_normalize(related_pos_arr[i], upper_left_corner_arr[i], lower_right_corner_arr[i], mrc_offset_arr[i])
+        res.append(_coord)
+    return res
+
+
 def rescale(cube_array, aim_size=[32, 32, 32]):
     """
     rescale a cube to a standard size, and return the rescaled coordinates
@@ -235,6 +262,7 @@ class AminoAcidDataset(Dataset):
         self.offset_list = df['offset'].tolist()
         self.standard_size = standard_size
         self.zoom_type = zoom_type
+        self.mode = 1
         assert len(self.pdb_cube_path) == len(self.mrc_cube_path)
 
     def normalize_coords(self, coords, offset, upper_left, lower_right, padding=2):
@@ -257,15 +285,6 @@ class AminoAcidDataset(Dataset):
         _coords = np.array([x, y, z])
         # print("Relate to original offset: \t", _coords)
         _coords = np.array(np.array(_coords) - np.array(upper_left))
-        # print(" Original atom pos:\t\t", coords, "\n",
-        #       ".mrc file offset:\t\t", offset, "\n",
-        #       ".mrc offset xyz: \t\t", offset_xyz, "\n",
-        #       "relative coords:\t\t", _coords, "\n",
-        #       "Cube upper left :\t\t", upper_left, "\n",
-        #       "Cube lower right:\t\t", lower_right, "\n",
-        #       "Cube size \t\t", _cube_size, '\n',
-        #       "Real upper left:\t\t", real_upper_left, "\n",
-        #       "Real lower right:\t\t", real_lower_right, "\n")
         if (_coords > _cube_size).sum() > 0:
             print(_coords, _cube_size)
             print("coordinates is out of the cube boundary")
@@ -273,6 +292,25 @@ class AminoAcidDataset(Dataset):
         norm_coords = _coords / _cube_size
         # print(norm_coords)
         return np.array(norm_coords)
+    
+    
+    @staticmethod
+    def de_normalize(related_pos, upper_left_corner, lower_right_corner, mrc_offset):
+        """
+        return a real pos of an atom
+        :param cube_coords: [x1, x2, y1, y2, z1, z2]
+        """
+        # [x1, x2, y1, y2, z1, z2] = cube_coords
+        # upper_left_corner = [x1, y1, z1]
+        # lower_right_corner = [x2, y2, z2]
+        cube_size = np.array(lower_right_corner) - np.array(upper_left_corner)
+        real_pos = np.array(related_pos) * cube_size + upper_left_corner
+        x, y, z = real_pos
+        _x = x/2 + mrc_offset[2]
+        _y = y/2 + mrc_offset[1]
+        _z = z/2 + mrc_offset[0]
+
+        return np.array([_z, _y, _x])
 
     def rescale(self, cube_array):
         """
@@ -300,20 +338,10 @@ class AminoAcidDataset(Dataset):
             # all dimensions zoomed with different factors, so the output is the aim_size
             return zoom(cube_array, scale)
 
-    def de_normalize(self, related_pos, cube_coords, mrc_offset):
-        """
-        return a real pos of an atom
-        :param cube_coords: [x1, x2, y1, y2, z1, z2]
-        """
-        [x1, x2, y1, y2, z1, z2] = cube_coords
-        upper_left_corner = [x1, y1, z1]
-        lower_right_corner = [x2, y2, z2]
-        cube_size = np.array(lower_right_corner) - np.array(upper_left_corner)
-        real_pos = np.array(related_pos) * cube_size + upper_left_corner
-        z, y, x = real_pos
-
-        return np.array([x/2 + mrc_offset[2], y/2 + mrc_offset[1], z/2 + mrc_offset[0]])
-
+    
+    def set_mode(self, mode):
+        self.mode = mode
+    
     def __getitem__(self, item):
         # TODO:
         #  1. Need to take 'offset' into account, for particular pos in a single cube --> done
@@ -330,28 +358,35 @@ class AminoAcidDataset(Dataset):
         coords_npy_file_path = npy_file_path.replace(npy_basename, coords_npy_file_path)
         # Ca_pos, N_pos, C_pos, O_pos = get_atoms_pos(pdb_file_path, aim_atom_types=["CA", "N", "C", "O"])
         pos_labels = get_atoms_pos(pdb_file_path, aim_atom_types=["CA", "N", "C", "O"])
+        _pos_labels = np.array(pos_labels[:])
+        # print("Before normalize: \t", pos_labels[0])
         cube_data_array = np.load(npy_file_path)
         x1, x2, y1, y2, z1, z2, _ = np.load(coords_npy_file_path)
         upper_left_corner = [x1, y1, z1]
         lower_right_corner = [x2, y2, z2]
+
 
         # normalize coordinates
         cube_size = cube_data_array.shape
         try:
             for i, item_coord in enumerate(pos_labels):
                 pos_labels[i] = self.normalize_coords(item_coord, _offset, upper_left_corner, lower_right_corner)
-                relat_Ca_pos, relat_N_pos, relat_C_pos, relat_O_pos = pos_labels
+            relat_Ca_pos, relat_N_pos, relat_C_pos, relat_O_pos = pos_labels
         except ValueError:
             print(mrc_file_path, pdb_file_path)
             relat_Ca_pos, relat_N_pos, relat_C_pos, relat_O_pos = np.array([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5],
                                                                             [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], ])
 
-        # for i, item_coord in enumerate(pos_labels):
-        #     pos_labels[i] = self.normalize_coords(item_coord, _offset, upper_left_corner, lower_right_corner)
+        # print("After de-normalize: \t", de_normalize(pos_labels[0], upper_left_corner, lower_right_corner, _offset))
 
         # rescale cube data
         cube_data_array = torch.from_numpy(self.rescale(cube_data_array))
-        return cube_data_array.unsqueeze(0), relat_Ca_pos, relat_N_pos, relat_C_pos, relat_O_pos
+        if self.mode == 1:
+            return cube_data_array.unsqueeze(0), relat_Ca_pos, relat_N_pos, relat_C_pos, relat_O_pos
+        else:
+            return cube_data_array.unsqueeze(0), relat_Ca_pos, relat_N_pos, relat_C_pos, relat_O_pos, \
+                                                 _pos_labels[0], _pos_labels[1], _pos_labels[2], _pos_labels[3], \
+                                                 np.array(upper_left_corner), np.array(lower_right_corner), np.array(_offset)
 
     def __len__(self):
         return len(self.mrc_cube_path)
