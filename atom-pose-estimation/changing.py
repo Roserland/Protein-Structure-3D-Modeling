@@ -288,7 +288,8 @@ if __name__ == '__main__':
 
     # os.makedirs(args.pp_dir, exist_ok=True)
     args.EMdata_dir = "/Volumes/RS/amino-acid-detection/EMdata_dir/400_500"
-    data_root_dir = "/Volumes/RS/amino-acid-detection/test_data"
+    args.EMdata_dir = "/mnt/data/zxy/amino-acid-detection/EMdata_dir/400_500"
+    data_root_dir = "/mnt/data/zxy/amino-acid-detection//test_data"
     for pdb_id in os.listdir(args.EMdata_dir):
         map_path = os.path.join(args.EMdata_dir, pdb_id, 'simulation/normalized_map.mrc')
         pdb_path = os.path.join(args.EMdata_dir, pdb_id, 'simulation/{}.rebuilt.pdb'.format(pdb_id))

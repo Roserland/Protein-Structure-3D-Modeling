@@ -41,9 +41,9 @@ LR = 0.01
 w_decay = 0.001
 lr_decay_step_size = 10
 lr_decay_ratio = 0.2
-batch_size = 64
+batch_size = 64 * 4
 n_epochs = 120
-loss_weight = np.array([1.0, 1.0, 1.0, 1.0]) / 4
+loss_weight = [1, 1.0, 1.0, 1.0]
 
 log_dir = './log_files/'
 f_l1_loss_log = open(os.path.join(log_dir, 'key_point_pos_estimation_loss.txt'),  'a')
@@ -140,49 +140,22 @@ if not os.path.exists(checkpoints_dir):
 if __name__ == '__main__':
 
     model = My_3D_CNN(in_channels=1, )
+    model.to(device)
     # print(model.parameters)
 
     loss_fn = nn.L1Loss()
     optimizer = Adam(list(model.parameters()), lr=LR, weight_decay=w_decay, betas=(0.9, 0.99))
     scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_decay_step_size, gamma=lr_decay_ratio)
 
-    train_set = AminoAcidDataset(index_csv='./datas/split/train.csv', )
-    valid_set = AminoAcidDataset(index_csv='./datas/split/valid.csv', )
-    test_set = AminoAcidDataset(index_csv='./datas/split/test.csv', )
+    train_set = AminoAcidDataset(index_csv='../datas/split/train.csv', )
+    valid_set = AminoAcidDataset(index_csv='../datas/split/valid.csv', )
+    test_set = AminoAcidDataset(index_csv='../datas/split/test.csv', )
 
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(valid_set, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True)
 
     min_l1_loss = np.inf
-
-    # *****************************************************************
-    # # Test data:
-    # for batch_idx, data in enumerate(train_loader):
-    #     cube_data_array = data[0].to(torch.float32).to(device)
-    #     Ca_pos = data[1].to(torch.float32).to(device)
-    #     N_pos = data[2].to(torch.float32).to(device)
-    #     C_pos = data[3].to(torch.float32).to(device)
-    #     O_pos = data[4].to(torch.float32).to(device)
-    #     print(Ca_pos[0], N_pos[0], C_pos[0], O_pos[0])
-    #
-    # for batch_idx, data in enumerate(test_loader):
-    #     cube_data_array = data[0].to(torch.float32).to(device)
-    #     Ca_pos = data[1].to(torch.float32).to(device)
-    #     N_pos = data[2].to(torch.float32).to(device)
-    #     C_pos = data[3].to(torch.float32).to(device)
-    #     O_pos = data[4].to(torch.float32).to(device)
-    #     print(Ca_pos[0], N_pos[0], C_pos[0], O_pos[0])
-    #
-    # for batch_idx, data in enumerate(valid_loader):
-    #     cube_data_array = data[0].to(torch.float32).to(device)
-    #     Ca_pos = data[1].to(torch.float32).to(device)
-    #     N_pos = data[2].to(torch.float32).to(device)
-    #     C_pos = data[3].to(torch.float32).to(device)
-    #     O_pos = data[4].to(torch.float32).to(device)
-    #     print(Ca_pos[0], N_pos[0], C_pos[0], O_pos[0])
-
-    # ****************************************************
 
     for epoch in range(n_epochs):
         writelog(f_l1_loss_log, '------ Epoch ' + str(epoch))
@@ -195,7 +168,10 @@ if __name__ == '__main__':
         writelog(f_l1_loss_log, '\nTest Part')
         test_loss = test(epoch, "test", model, test_loader, optimizer=None, _scheduler=None)
         if test_loss < min_l1_loss:
-            # torch.save(model, checkpoints_dir + 'model/' + '/' + str(epoch) + '_3d_cnn.pt')
+            # ckpnt_dir_path = os.path.join(checkpoints_dir, "/model")
+            # if not os.path.exists(ckpnt_dir_path):
+            #     os.makedirs(ckpnt_dir_path)
+            torch.save(model.state_dict(), os.path.join(checkpoints_dir, "epoch-{}_3D_CNN.pt".format(epoch)))
             writelog(f_l1_loss_log, 'Models at Epoch ' + '/' + str(epoch) + ' are saved!')
             best_epoch = epoch
 

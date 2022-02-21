@@ -300,8 +300,19 @@ class AminoAcidDataset(Dataset):
             # all dimensions zoomed with different factors, so the output is the aim_size
             return zoom(cube_array, scale)
 
-    def de_scale(self):
-        pass
+    def de_normalize(self, related_pos, cube_coords, mrc_offset):
+        """
+        return a real pos of an atom
+        :param cube_coords: [x1, x2, y1, y2, z1, z2]
+        """
+        [x1, x2, y1, y2, z1, z2] = cube_coords
+        upper_left_corner = [x1, y1, z1]
+        lower_right_corner = [x2, y2, z2]
+        cube_size = np.array(lower_right_corner) - np.array(upper_left_corner)
+        real_pos = np.array(related_pos) * cube_size + upper_left_corner
+        z, y, x = real_pos
+
+        return np.array([x/2 + mrc_offset[2], y/2 + mrc_offset[1], z/2 + mrc_offset[0]])
 
     def __getitem__(self, item):
         # TODO:
