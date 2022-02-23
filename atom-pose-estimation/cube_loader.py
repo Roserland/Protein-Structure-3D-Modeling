@@ -33,6 +33,7 @@ TODO:
 '''
 
 # import lib
+from turtle import update
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
@@ -294,23 +295,23 @@ class AminoAcidDataset(Dataset):
         return np.array(norm_coords)
     
     
-    @staticmethod
-    def de_normalize(related_pos, upper_left_corner, lower_right_corner, mrc_offset):
-        """
-        return a real pos of an atom
-        :param cube_coords: [x1, x2, y1, y2, z1, z2]
-        """
-        # [x1, x2, y1, y2, z1, z2] = cube_coords
-        # upper_left_corner = [x1, y1, z1]
-        # lower_right_corner = [x2, y2, z2]
-        cube_size = np.array(lower_right_corner) - np.array(upper_left_corner)
-        real_pos = np.array(related_pos) * cube_size + upper_left_corner
-        x, y, z = real_pos
-        _x = x/2 + mrc_offset[2]
-        _y = y/2 + mrc_offset[1]
-        _z = z/2 + mrc_offset[0]
+    # @staticmethod
+    # def de_normalize(related_pos, upper_left_corner, lower_right_corner, mrc_offset):
+    #     """
+    #     return a real pos of an atom
+    #     :param cube_coords: [x1, x2, y1, y2, z1, z2]
+    #     """
+    #     # [x1, x2, y1, y2, z1, z2] = cube_coords
+    #     # upper_left_corner = [x1, y1, z1]
+    #     # lower_right_corner = [x2, y2, z2]
+    #     cube_size = np.array(lower_right_corner) - np.array(upper_left_corner)
+    #     real_pos = np.array(related_pos) * cube_size + upper_left_corner
+    #     x, y, z = real_pos
+    #     _x = x/2 + mrc_offset[2]
+    #     _y = y/2 + mrc_offset[1]
+    #     _z = z/2 + mrc_offset[0]
 
-        return np.array([_z, _y, _x])
+    #     return np.array([_z, _y, _x])
 
     def rescale(self, cube_array):
         """
@@ -392,7 +393,50 @@ class AminoAcidDataset(Dataset):
         return len(self.mrc_cube_path)
 
 
+class uniAminoTypeDataset(AminoAcidDataset):
+    def __init__(self, amino_type, index_csv, standard_size=[32, 32, 32], zoom_type="diff"):
+        super().__init__(index_csv, standard_size, zoom_type)
+        self.aminoType = amino_type
+        # update
+        self.filter_amino_type(self.mrc_cube_path, self.pdb_cube_path)
+
+    def filter_amino_type(self, mrc_file_path_list, pdb_file_path_list):
+        filtered_mrc_paths = []
+        filtered_pdb_paths = []
+        offsets = []
+        for i, item in enumerate(mrc_file_path_list):
+            if self.aminoType in os.path.basename(item):
+                filtered_mrc_paths.append(mrc_file_path_list[i])
+                filtered_pdb_paths.append(pdb_file_path_list[i])
+                offsets.append(self.offset_list[i])
+        # update
+        self.mrc_cube_path = filtered_mrc_paths
+        self.pdb_cube_path = filtered_pdb_paths
+        self.offset_list = offsets
+    
+
+    def normalize_coords(self, coords, offset, upper_left, lower_right, padding=2):
+        return super().normalize_coords(coords, offset, upper_left, lower_right, padding)
+    
+    def set_mode(self, mode):
+        return super().set_mode(mode)
+
+    def rescale(self, cube_array):
+        return super().rescale(cube_array)
+
+    def __getitem__(self, item):
+        return super().__getitem__(item)
+
+    def __len__(self):
+        return super().__len__()
+    
+    
+
+
+
 # metrics
+def my_criterial(l1_weight, l2_weight):
+    return l1_weight * nn.L1Loss() + l2_weight * nn.MSELoss()
 
 
 

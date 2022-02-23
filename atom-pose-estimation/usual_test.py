@@ -17,9 +17,10 @@ import pandas as pd
 import numpy as np
 import mrcfile
 import matplotlib.pyplot as plt
+from cube_loader import *
 
-mrc_fragment_dirs = '/Volumes/RS/amino-acid-detection/test_data/mrc_fragments'
-pdb_fragment_dirs = '/Volumes/RS/amino-acid-detection/test_data/pdb_fragments'
+# mrc_fragment_dirs = '/Volumes/RS/amino-acid-detection/test_data/mrc_fragments'
+# pdb_fragment_dirs = '/Volumes/RS/amino-acid-detection/test_data/pdb_fragments'
 
 def parse_atom(line):
     """Parse node's atom type from given 'line'"""
@@ -96,37 +97,37 @@ def generate_index_csv(files_root_dir, suffix="pdb"):
 
 if __name__ == '__main__':
     # *********************  Part-1 Begin  *********************
-    mrc_names = generate_index_csv(mrc_fragment_dirs, suffix='mrc')
-    pdb_names = generate_index_csv(pdb_fragment_dirs, suffix='pdb')
+    # mrc_names = generate_index_csv(mrc_fragment_dirs, suffix='mrc')
+    # pdb_names = generate_index_csv(pdb_fragment_dirs, suffix='pdb')
     # print(mrc_names == pdb_names)
     # df = {"protein_id": mrc_names}
     # df = pd.DataFrame(df)
     # df.to_csv('./protein_id.csv', index=None)
 
-    EMdata_dir = '/Volumes/RS/amino-acid-detection/EMdata_dir/400_500/'
-    offset_dict = {}
-    for pdb_id in os.listdir(EMdata_dir):
-        if len(pdb_id) > 4:
-            continue
-        map_path = os.path.join(EMdata_dir, pdb_id, 'simulation/normalized_map.mrc')
-        # pdb_path = os.path.join(EMdata_dir, pdb_id, 'simulation/{}.rebuilt.pdb'.format(pdb_id))
-        normalized_map = mrcfile.open(map_path, mode='r')
-        origin = normalized_map.header.origin.item(0)  # offset
-        _offset_str = str(round(origin[0], 5)) + ';' + str(round(origin[1], 5)) + ';' + str(round(origin[2], 5))
-        # print(origin)
-        # print(_offset_str)
-        offset_dict[pdb_id] = _offset_str
-    #
-    mrc_index_df = pd.read_csv('/Users/fanzw/PycharmProjects/3D-Detection/cryoem-amino-acid-detection/3d_posetimtation/mrc_index.csv')
-    print(mrc_index_df.head(5))
+    # EMdata_dir = '/Volumes/RS/amino-acid-detection/EMdata_dir/400_500/'
+    # offset_dict = {}
+    # for pdb_id in os.listdir(EMdata_dir):
+    #     if len(pdb_id) > 4:
+    #         continue
+    #     map_path = os.path.join(EMdata_dir, pdb_id, 'simulation/normalized_map.mrc')
+    #     # pdb_path = os.path.join(EMdata_dir, pdb_id, 'simulation/{}.rebuilt.pdb'.format(pdb_id))
+    #     normalized_map = mrcfile.open(map_path, mode='r')
+    #     origin = normalized_map.header.origin.item(0)  # offset
+    #     _offset_str = str(round(origin[0], 5)) + ';' + str(round(origin[1], 5)) + ';' + str(round(origin[2], 5))
+    #     # print(origin)
+    #     # print(_offset_str)
+    #     offset_dict[pdb_id] = _offset_str
+    # #
+    # mrc_index_df = pd.read_csv('/Users/fanzw/PycharmProjects/3D-Detection/cryoem-amino-acid-detection/3d_posetimtation/mrc_index.csv')
+    # print(mrc_index_df.head(5))
 
     # get offset
-    def get_protein_id(_str):
-        return _str[:4]
-    protein_id = mrc_index_df['frag_id'].map(get_protein_id)
-    mrc_index_df["offset"] = protein_id.map(offset_dict)
-    # print(mrc_index_df.head(5))
-    mrc_index_df.to_csv('/Users/fanzw/PycharmProjects/3D-Detection/cryoem-amino-acid-detection/3d_posetimtation/mrc_index.csv', index=None)
+    # def get_protein_id(_str):
+    #     return _str[:4]
+    # protein_id = mrc_index_df['frag_id'].map(get_protein_id)
+    # mrc_index_df["offset"] = protein_id.map(offset_dict)
+    # # print(mrc_index_df.head(5))
+    # mrc_index_df.to_csv('/Users/fanzw/PycharmProjects/3D-Detection/cryoem-amino-acid-detection/3d_posetimtation/mrc_index.csv', index=None)
 
     # *********************  Part-1 Finished  *********************
 
@@ -151,3 +152,15 @@ if __name__ == '__main__':
     # plt.scatter(list(range(len(x))), y, color='y', label="y", s=1, marker='+')
     # plt.scatter(list(range(len(x))), z, color='b', label="z", s=1, marker='o')
     # plt.savefig('./length_distribution.jpg')
+
+    test_set = AminoAcidDataset(index_csv='../datas/split/test.csv', )
+    print("length of origin test set {}".format(test_set.__len__()))
+    for i in range(20):
+        print(test_set.mrc_cube_path[i])
+
+    print("\n\n\n")
+    uni_test_set = uniAminoTypeDataset(amino_type="ASP", index_csv='../datas/split/test.csv')
+    print("length of uniType test set {}".format(uni_test_set.__len__()))
+    for i in range(20):
+        print(uni_test_set.mrc_cube_path[i])
+        # print(uni_test_set.pdb_cube_path[i])

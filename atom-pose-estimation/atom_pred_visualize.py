@@ -1,3 +1,4 @@
+from json.tool import main
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
@@ -26,23 +27,77 @@ def plot_coords_diffs(pred_atoms_pos, gt_atom_pos, target, _type="line",
     dist = np.sqrt(np.sum(diff ** 2, axis=1))
     _x = np.arange(len(dist))
 
-    if _type == 'line':
-        plt.plot(_x, np.abs(diff[:, 0]), marker='+', linestyle=':', markersize=3, label="Axis X",)
-        plt.plot(_x, np.abs(diff[:, 1]), marker='x', linestyle=':', markersize=3, label="Axis Y",)
-        plt.plot(_x, np.abs(diff[:, 2]), marker='o', linestyle=':', markersize=3, label="Axis Z",)
-        plt.plot(_x, np.abs(dist), marker='*', linestyle=':', markersize=3, label="Abs distance",)
-    elif _type == "point":
-        plt.scatter(_x, np.abs(diff[:, 0]), marker='+', s=5, label="Axis X",)
-        plt.scatter(_x, np.abs(diff[:, 1]), marker='x', s=5, label="Axis Y",)
-        plt.scatter(_x, np.abs(diff[:, 2]), marker='o', s=5, label="Axis Z",)
-        plt.scatter(_x, np.abs(dist), marker='*', s=5, label="Abs distance",)
+    fig = plt.figure()
+    ax_1 = fig.add_subplot(211)
+    ax_21 = fig.add_subplot(234)
+    ax_22 = fig.add_subplot(235)
+    ax_23 = fig.add_subplot(236)
 
-    plt.title(_title)
-    plt.legend()
+    if _type == 'line':
+        # ax_1.plot(_x, np.abs(diff[:, 0]), marker='+', linestyle=':', markersize=3, label="x-dist",)
+        # ax_21.plot(_x, np.abs(diff[:, 1]), marker='x', linestyle=':', markersize=3, label="Axis Y",)
+        # ax_22.plot(_x, np.abs(diff[:, 2]), marker='o', linestyle=':', markersize=3, label="Axis Z",)
+        # ax_23.plot(_x, np.abs(dist), marker='*', linestyle=':', markersize=3, label="Abs distance",)
+        ax_21.plot(_x, np.abs(diff[:, 0]), marker='+', linestyle=':', markersize=3,)
+        ax_22.plot(_x, np.abs(diff[:, 1]), marker='x', linestyle=':', markersize=3, )
+        ax_23.plot(_x, np.abs(diff[:, 2]), marker='o', linestyle=':', markersize=3, )
+        ax_1.plot(_x, np.abs(dist), marker='*', linestyle=':', markersize=3, )
+        # ax_1.set_title("Abs distance (A)")
+        # ax_21.set_title("x-dist (A)")
+        # ax_22.set_title("y-dist (A)")
+        # ax_23.set_title("z-dist (A)")
+    elif _type == "point":
+        ax_21.scatter(_x, np.abs(diff[:, 0]), marker='+', s=5, )
+        ax_22.scatter(_x, np.abs(diff[:, 1]), marker='x', s=5, )
+        ax_23.scatter(_x, np.abs(diff[:, 2]), marker='o', s=5, )
+        ax_1.scatter(_x, np.abs(dist), marker='*', s=5, )
+    elif _type == "bin":
+        ax_21.hist(np.abs(diff[:, 0]), bins=80)
+        ax_22.hist(np.abs(diff[:, 1]), bins=80)
+        ax_23.hist(np.abs(diff[:, 2]), bins=80)
+        ax_1.hist(np.abs(dist), bins=120)
+
+    ax_1.set_title("Amino-{}: Abs distance (A)".format(target))
+    ax_21.set_title("x-dist (A)")
+    ax_22.set_title("y-dist (A)")
+    ax_23.set_title("z-dist (A)")
+    # plt.title(_title)
+    # plt.legend()
+    plt.tight_layout()
     
     plt.savefig(os.path.join(save_dir, "{}_atom_pos_regression_diff.png".format(target)))
     plt.close()
-    
 
+
+if __name__ == "__main__":
+    test_data_1 = np.arange(0, 1000)
+    test_data_2 = np.arange(0, 1000, 2)
+    test_data_3 = np.arange(0, 1000, 4)
+    test_data_4 = np.arange(0, 1000, 5)
+
+    fig = plt.figure()
+    ax1 = fig.add_subplot(211)
+    ax1.hist(test_data_1, bins=50, )
+    ax1.set_title("Ca atom distance", fontsize=16)
+    ax_21 = fig.add_subplot(234)
+    ax_21.plot(test_data_1, test_data_1, )
+    ax_21.set_title("C atom distance", fontsize=12)
+
+    ax_22 = fig.add_subplot(235)
+    ax_22.scatter(test_data_1, test_data_1, )
+    ax_22.set_title("N atom distance", fontsize=12)
+
+    ax_23 = fig.add_subplot(236)
+    ax_23.plot(test_data_1, test_data_1, )
+    ax_23.set_title("O atom distance", fontsize=12)
+
+    plt.title("None None")
+    plt.tight_layout()
+
+    # a[1][0].hist(test_data_2, bins=50)
+    # a[1][1].hist(test_data_3, bins=50)
+    # a[1][2].hist(test_data_4, bins=50)
+    plt.savefig('./data_temp/temo_ing.jpg')
+    plt.close()
 
 

@@ -3,17 +3,18 @@
 '''
 @File    :   main.py    
 @Contact :   roserland@gmail.com
-Try to use 3D U-Net to regress some 'Key Points' among an amino acid cube, such as:
+Try to use 3D U-Net / 3D CNN to regress some 'Key Points' among an amino acid cube, such as:
     1. The Ca atom, which will be used in Protein Backbone Tracing
     2. The N atom in NH2, will be used to calculate Ca-N-CO angle, to determine amino acid cube's spatial position.
     3. The O atom in CO,
 @Modify Time      @Author    @Version    @Desciption
 ------------      -------    --------    -----------
-2022/2/9 10:25 下午   fanzw      1.0         None
+2022/2/22 17:20 下午   fanzw      1.0         None
 '''
 
 """
-This file is a elementary test, we will:
+This file is a elementary test about uni-type amino-acid position predcition, we will:
+    0. Using uni-type amino acid cube to train.
     1. First, use 3D-UNet to regress a single atom coordinates: [x, y, z]
     2. Second, use some separate model to predict their position among such as 'Ca, N, C, O' atoms 
     3. Finally, using a single model to predict these 3 or 4 atoms' position, for there must be some spatial connection
@@ -21,6 +22,7 @@ This file is a elementary test, we will:
 """
 
 # import lib
+from pkg_resources import parse_requirements
 from traceback2 import print_tb
 from light_3DUNet import My_3D_CNN
 from cube_loader import *
@@ -31,10 +33,20 @@ import torch.optim as optim
 import torch
 import torch.nn as nn
 import numpy as np
+import argparse
 
+AMINO_ACIDS = ['ALA', 'CYS', 'ASP', 'GLU', 'PHE', 'GLY', 'HIS', 'ILE', 'LYS', 'LEU',
+               'MET', 'ASN', 'PRO', 'GLN', 'ARG', 'SER', 'THR', 'VAL', 'TRP', 'TYR']
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--gpu_id", type=str, required=True)
+parser.add_argument("--amino_type", type=str, required=True)
+parser.add_argument("--batch_size", default=256)
+args = parser.parse_args()
 
 # prepare environment
-gpu_id = '0'
+gpu_id = args.gpu_id
 os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 print('gpu ID is ', str(gpu_id))
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -44,7 +56,7 @@ LR = 0.01
 w_decay = 0.001
 lr_decay_step_size = 10
 lr_decay_ratio = 0.2
-batch_size = 256
+batch_size = args.batch_size
 n_epochs = 120
 loss_weight = [1, 1.0, 1.0, 1.0]
 
@@ -78,13 +90,13 @@ def train(epoch, model, train_loader, optimizer, _scheduler):
         optimizer.step()
         # print(Ca_output)
         used_time = round(time.time() - curr_time, 4)
-        print("[Batch:{}--{}ms] \tCa_L1:{}\tN_L1:{}\tC_L1:{}\tO_L1:{}\tloss:{}".format(
+        print("[Batch:{}--{}s] \tCa_L1:{}\tN_L1:{}\tC_L1:{}\tO_L1:{}\tloss:{}".format(
             batch_idx, used_time, loss_Ca, loss_N, loss_C, loss_O, loss)
         )
 
         train_loss += loss.item()
         n_batches += 1
-        if n_batches % 100 == 0:
+        if n_batches % 20 == 0:      # 20
             break
 
     train_loss = train_loss / n_batches
@@ -110,14 +122,14 @@ def test(epoch, phase, model, test_loader, optimizer, _scheduler):
         C_pos = data[3].to(torch.float32).to(device)
         O_pos = data[4].to(torch.float32).to(device)
         # print(C_pos)
-        gt_Ca += data[5][:10].numpy().tolist() # .to(torch.float32).to(device)
-        gt_N  += data[6][:10].numpy().tolist() # .to(torch.float32).to(device)
-        gt_C  += data[7][:10].numpy().tolist() # .to(torch.float32).to(device)
-        gt_O  += data[8][:10].numpy().tolist() # .to(torch.float32).to(device)
+        gt_Ca += data[5][:].numpy().tolist() # .to(torch.float32).to(device)
+        gt_N  += data[6][:].numpy().tolist() # .to(torch.float32).to(device)
+        gt_C  += data[7][:].numpy().tolist() # .to(torch.float32).to(device)
+        gt_O  += data[8][:].numpy().tolist() # .to(torch.float32).to(device)
         # de_normalize
-        upper_left_corner = data[9][:10].numpy()
-        lower_right_corner = data[10][:10].numpy()
-        _offset = data[11][:10].numpy()
+        upper_left_corner = data[9][:].numpy()
+        lower_right_corner = data[10][:].numpy()
+        _offset = data[11][:].numpy()
 
 
         Ca_output, N_output, C_output, O_output = model(cube_data_array)
@@ -129,30 +141,30 @@ def test(epoch, phase, model, test_loader, optimizer, _scheduler):
                loss_weight[2] * loss_C + loss_weight[3] * loss_O
 
         # print(Ca_output.cpu().numpy().tolist())
-        pred_Ca += batch_de_normalize(Ca_output[:10].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
-        pred_N  += batch_de_normalize(N_output[:10].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
-        pred_C  += batch_de_normalize(C_output[:10].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
-        pred_O  += batch_de_normalize(O_output[:10].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
+        pred_Ca += batch_de_normalize(Ca_output[:].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
+        pred_N  += batch_de_normalize(N_output[:].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
+        pred_C  += batch_de_normalize(C_output[:].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
+        pred_O  += batch_de_normalize(O_output[:].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
 
         # print(Ca_output)
         used_time = round(time.time() - curr_time, 4)
-        print("[Batch:{}--{}ms] \tCa_L1:{}\tN_L1:{}\tC_L1:{}\tO_L1:{}\tloss:{}".format(
+        print("[Batch:{}--{}s] \tCa_L1:{}\tN_L1:{}\tC_L1:{}\tO_L1:{}\tloss:{}".format(
             batch_idx, used_time, loss_Ca, loss_N, loss_C, loss_O, loss)
         )
         test_loss += loss.item()
         n_batches += 1
 
-        if n_batches % 25 == 0:
+        if n_batches % 5 == 0:      # 5
             break
 
     test_loss /= n_batches
     writelog(f_l1_loss_log, "time: {}".format(time.asctime(time.localtime(time.time()))))
     writelog(f_l1_loss_log, 'Test loss : ' + str(test_loss))
 
-    plot_coords_diffs(pred_Ca, gt_Ca, target='Ca', _type='point')
-    plot_coords_diffs(pred_N, gt_N, target='N', _type='point')
-    plot_coords_diffs(pred_C, gt_C, target='C', _type='point')
-    plot_coords_diffs(pred_O, gt_O, target='O', _type='point')
+    plot_coords_diffs(pred_Ca, gt_Ca, target='Ca', _type='bin', save_dir='./imgs/{}/'.format(args.amino_type))
+    plot_coords_diffs(pred_N, gt_N, target='N', _type='bin', save_dir='./imgs/{}/'.format(args.amino_type))
+    plot_coords_diffs(pred_C, gt_C, target='C', _type='bin', save_dir='./imgs/{}/'.format(args.amino_type))
+    plot_coords_diffs(pred_O, gt_O, target='O', _type='bin', save_dir='./imgs/{}/'.format(args.amino_type))
 
     return test_loss
 
@@ -163,11 +175,14 @@ def writelog(file, line):
     print(line)
 
 
-checkpoints_dir = './checkpoints/' + 'observation_' + str(datetime.datetime.now().strftime('%H.%M.%S')) + '/'
-if not os.path.exists(checkpoints_dir):
-    os.makedirs(checkpoints_dir)
-
 if __name__ == '__main__':
+    curr_amino_type = args.amino_type.upper()
+    if curr_amino_type not in AMINO_ACIDS:
+        print("Check amino type, the type {} is invalid".format(curr_amino_type))
+        raise ValueError
+    checkpoints_dir = './checkpoints/uni_models/{}'.format(curr_amino_type) + 'observation_' + str(datetime.datetime.now().strftime('%H.%M.%S')) + '/'
+    if not os.path.exists(checkpoints_dir):
+        os.makedirs(checkpoints_dir)
 
     model = My_3D_CNN(in_channels=1, )
     model.to(device)
@@ -177,9 +192,13 @@ if __name__ == '__main__':
     optimizer = Adam(list(model.parameters()), lr=LR, weight_decay=w_decay, betas=(0.9, 0.99))
     scheduler = lr_scheduler.StepLR(optimizer, step_size=lr_decay_step_size, gamma=lr_decay_ratio)
 
-    train_set = AminoAcidDataset(index_csv='../datas/split/train.csv', )
-    valid_set = AminoAcidDataset(index_csv='../datas/split/valid.csv', )
-    test_set = AminoAcidDataset(index_csv='../datas/split/test.csv', )
+    # train_set = AminoAcidDataset(index_csv='../datas/split/train.csv', )
+    # valid_set = AminoAcidDataset(index_csv='../datas/split/valid.csv', )
+    # test_set = AminoAcidDataset(index_csv='../datas/split/test.csv', )
+    train_set = uniAminoTypeDataset(amino_type=curr_amino_type, index_csv='../datas/split/train.csv', )
+    valid_set = uniAminoTypeDataset(amino_type=curr_amino_type, index_csv='../datas/split/valid.csv', )
+    test_set  = uniAminoTypeDataset(amino_type=curr_amino_type, index_csv='../datas/split/test.csv', )
+
 
     test_set.set_mode(2)
     valid_set.set_mode(2)
