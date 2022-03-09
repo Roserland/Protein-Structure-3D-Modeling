@@ -7,9 +7,9 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
-from ..atom_pose_estimation.cube_loader import AminoAcidDataset, de_normalize
-from ..atom_pose_estimation.inference import inference
-from ..atom_pose_estimation.layers import HourGlass3DNet
+from atom_pose_estimation.cube_loader import AminoAcidDataset, de_normalize
+# from atom_pose_estimation.inference import inference
+from atom_pose_estimation.layers import HourGlass3DNet
 import pandas as pd
 import numpy as np
 import mrcfile 
@@ -22,12 +22,16 @@ AMINO_ACID_DICT = dict(zip(AMINO_ACIDS, range(20)))
 
 
 
-def generate_data(model, index_csv='../datas/split/train.csv', save_dir='/mnt/data/zxy/stage3-amino-keypoint-vectors/'):
+def generate_input_data(model, index_csv='../datas/mrc_index.csv', save_dir='/mnt/data/zxy/stage3-amino-keypoint-vectors/'):
+    """
+        Args: 使用 Stage2 中产生的向量作为 Input
+        TODO: 是否将 坐标 转换成 （相应）蛋白质空间下的相对坐标,  eg. x 的范围为 [0, 236) 或 [0, 472) （0.5 voxel分辨率下)
+    """
     model.eval()
     dataset = AminoAcidDataset(index_csv=index_csv, standard_size=[16, 16, 16],
                                gt_type='coords')
     dataset.set_mode(2)
-    data_loader = DataLoader(dataset)
+    # data_loader = DataLoader(dataset)
     df = pd.read_csv(index_csv)
     for i in range(len(df)):
         curr_records = df.iloc[i]
@@ -61,10 +65,10 @@ def generate_data(model, index_csv='../datas/split/train.csv', save_dir='/mnt/da
         _save_dir = os.path.join(save_dir, frag_id)
         if not os.path.exists(_save_dir):
             os.makedirs(_save_dir)
-        
+        np.save(os.path.join(_save_dir, os.path.basename(npy_file_path)), fea_vec)
 
 
-def generate_simulation_data(pdb_index_csv):
+def generate_input_simulation_data(pdb_index_csv):
     pass
 
 
@@ -79,3 +83,7 @@ class AminoFeatureDataset(Dataset):
                  gt_type=None,
                  zoom_type="diff"):
                  pass
+
+if __name__ =='__main__':
+    model = torch.load('atom_pose_estimation/checkpoints/Hourglass3D_Regression/2022-03-07observation_11.00.06/best_HG3_CNN.pt')
+    # print(model.state_dict())
