@@ -7,7 +7,6 @@ import imp
 import math
 from datetime import timedelta
 
-import xlwt
 # from postprocessing import pdb_reader_writer
 from pdb_utils import pdb_reader_writer
 

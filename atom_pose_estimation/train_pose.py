@@ -15,8 +15,8 @@ Try to use Hourglass3D to regress some 'Key Points' among an amino acid cube, su
 
 # import lib
 # from light_3DUNet import My_3D_CNN
-from layers import HourGlass3DNet, HourGlass3DNet_2
-from cube_loader import *
+from atom_pose_estimation.layers import HourGlass3DNet, HourGlass3DNet_2
+from atom_pose_estimation.cube_loader import *
 from atom_pred_visualize import plot_coords_diffs
 from torch.optim import Adam, lr_scheduler
 import os, time, datetime

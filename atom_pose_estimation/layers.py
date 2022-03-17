@@ -1,6 +1,4 @@
 from __future__ import print_function
-from tkinter.messagebox import NO
-from turtle import forward
 import torch
 import torch.nn as nn
 import torch.utils.data
