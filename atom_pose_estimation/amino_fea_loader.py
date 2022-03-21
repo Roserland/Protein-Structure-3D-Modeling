@@ -345,7 +345,8 @@ class AminoFeatureDataset(Dataset):
         label_file = os.path.join(protein_label_dir, "{}.npy".format(pid))
         label_vec = np.load(os.path.join(protein_label_dir, label_file))
         
-        data_array[:, 0] = np.int(data_array[:, 0])
+        print(data_array.shape)
+        data_array[:, 0] = data_array[:, 0].astype(int)
         label_vec[:, 0] = np.int(label_vec[:, 0])
         return data_array, label_vec
 
@@ -354,7 +355,7 @@ class AminoFeatureDataset(Dataset):
 
 
 if __name__ =='__main__':
-    model = torch.load('./checkpoints/Hourglass3D_Regression/2022-03-07observation_11.00.06/best_HG3_CNN.pt', map_location='cpu')
+    # model = torch.load('./checkpoints/Hourglass3D_Regression/2022-03-07observation_11.00.06/best_HG3_CNN.pt', map_location='cpu')
     # model.to(device)
     # generate_input_data(model, index_csv='../datas/split/train.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', absolute=False)
     # generate_input_data(model, index_csv='../datas/split/test.csv',  save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', absolute=False)
@@ -374,13 +375,23 @@ if __name__ =='__main__':
     # print(data[20:23], data[23:26], data[26:29], data[29:32])
 
     generate_output_data()
-    generate_data_index()
+    # generate_data_index()
+    pdb_src_dir = '/mnt/data/zxy/stage3_data/stage3_labels/'
+    
 
 
-    # the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
-    # the_loader  = DataLoader(the_dataset, batch_size=1)
+    # the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/train.csv')
+    # the_loader  = DataLoader(the_dataset, batch_size=2)
     # for idx, data in enumerate(the_loader):
     #     seq_data_array = data[0].to(torch.float32).to(device)
     #     labels = data[1].to(torch.float32).to(device)
     #     print(seq_data_array)
     #     print(labels)
+
+    #     s1 = seq_data_array[0]
+    #     s2 = seq_data_array[1]
+    #     print("\nSUM-1: {}".format(s1 == s2).sum())
+    #     l1 = labels[0]
+    #     l2 = labels[1]
+    #     print("\nSUM-2: {}".format(l1 == l2).sum())
+

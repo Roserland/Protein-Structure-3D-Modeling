@@ -320,7 +320,7 @@ if __name__ =='__main__':
     # generate_input_data(model, index_csv='../datas/split/test.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/')
     # generate_input_data(model, index_csv='../datas/split/valid.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/')
     # print(model.state_dict())
-    pass
+    
     # test generated data
     # fea_npy_dir = "/mnt/data/zxy/stage3-amino-keypoint-vectors/6OD0/"
     # file_list = os.listdir(fea_npy_dir)
@@ -338,12 +338,23 @@ if __name__ =='__main__':
 
 
     the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
-    the_loader  = DataLoader(the_dataset, batch_size=1)
+    the_loader  = DataLoader(the_dataset, batch_size=2)
     for idx, data in enumerate(the_loader):
         seq_data_array = data[0].to(torch.float32).to(device)
         labels = data[1].to(torch.float32).to(device)
         print(seq_data_array.shape)
         print(labels.shape)
-        print(seq_data_array)
-        print(labels)
+        print("***********************\n")
+        print(seq_data_array[0])
+        print(seq_data_array[1])
+        print(labels[0])
+        print(labels[1])
+
+
+        s1 = seq_data_array[0]
+        s2 = seq_data_array[1]
+        print("\nSUM-1: {}".format((s1 == s2).sum()))
+        l1 = labels[0]
+        l2 = labels[1]
+        print("\nSUM-2: {}".format((l1 == l2).sum()))
         break

@@ -21,6 +21,10 @@ seq_pos_loss_weight = 1.0
 
 cfg = Config()
 
+# TODO: 1. Check the position loss; 
+#       2. Add Seq-Noising data to exprimental dataset, otherwise it will become an combination problem
+# 
+
 
 
 def cal_performance(pred_seq, pred_pos, gt_seq, gt_pos, trg_pad_idx, 
@@ -126,10 +130,10 @@ def train_epoch(model, training_data, optimizer, opt, device, smoothing):
     loss_per_word = type_loss/n_word_total
     accuracy = n_word_correct/n_word_total
     pos_loss_per_amino = pos_loss / n_word_total
-    return loss, pos_loss_per_amino, loss_per_word, accuracy
+    return loss, pos_loss_per_amino, loss_per_word, accuracy, n_word_total
 
 
-def eval_epoch(model, validation_data, phase="Validation", device=device):
+def eval_epoch(model, validation_data, device=device, phase="Validation"):
     model.eval()
     total_loss, pos_loss, type_loss= 0, 0, 0 
     n_word_total, n_word_correct = 0, 0
@@ -162,10 +166,10 @@ def eval_epoch(model, validation_data, phase="Validation", device=device):
     loss_per_word = type_loss/n_word_total
     accuracy = n_word_correct/n_word_total
     pos_loss_per_amino = pos_loss / n_word_total
-    return loss, pos_loss_per_amino, loss_per_word, accuracy
+    return loss, pos_loss_per_amino, loss_per_word, accuracy, n_word_total
 
 
-def train(model, training_data, validation_data,  optimizer, cfg, smoothing, device=device):
+def train(model, training_data, validation_data, test_data, optimizer, cfg, smoothing, device=device):
     # Use tensorboard to plot curves, e.g. perplexity, accuracy, learning rate
     if cfg.use_tb:
         print("[Info] Use Tensorboard")
@@ -182,11 +186,12 @@ def train(model, training_data, validation_data,  optimizer, cfg, smoothing, dev
         log_tf.write('epoch,loss,ppl,accuracy\n')
         log_vf.write('epoch,loss,ppl,accuracy\n')
     
-    def print_performances(header, ppl, accu, pos_ppl, start_time, lr):
-        print('  - {header:12} ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, pos_ppl:{pos_ppl:8.5f}\
+    def print_performances(header, ppl, accu, pos_ppl, word_total, start_time, lr):
+        print('  - {header:12} ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, pos_ppl:{pos_ppl:8.5f},\
+                word_total:{word_total:6},\
                 lr: {lr:8.5f}, '\
                 'elapse: {elapse:3.3f} min'.format(
-                  header=f"({header})", ppl=ppl,
+                  header=f"({header})", ppl=ppl, word_total=word_total,
                   accu=100*accu, pos_ppl=pos_ppl, elapse=(time.time()-start_time)/60, lr=lr))
     
     valid_losses = []
@@ -194,21 +199,23 @@ def train(model, training_data, validation_data,  optimizer, cfg, smoothing, dev
         print('[ Epoch', epoch_i, ']')
 
         start = time.time()
-        train_loss, train_pos_loss, train_seq_loss, train_accu = train_epoch(
-                                                            model, training_data, optimizer, cfg, device, smoothing=cfg.label_smoothing)
+        train_loss, train_pos_loss, train_seq_loss, train_accu, train_word_total = \
+                        train_epoch(model, training_data, optimizer, cfg, device, smoothing=cfg.label_smoothing)
         # train_ppl = math.exp(min(train_loss, 100))
-        train_seq_ppl = math.exp(min(train_seq_loss, 100))
-        train_pos_ppl = math.exp(min(train_pos_loss, 100))
+        # train_seq_ppl = math.exp(min(train_seq_loss, 100))
+        # train_pos_ppl = math.exp(min(train_pos_loss, 100))        
+        train_seq_ppl = min(train_seq_loss, 100)
+        train_pos_ppl = min(train_pos_loss, 100)
         # Current learning rate
         lr = optimizer._optimizer.param_groups[0]['lr']
-        print_performances('Training', train_seq_ppl, train_accu, train_pos_ppl, start, lr)
+        print_performances('Training', train_seq_ppl, train_accu, train_pos_ppl, train_word_total, start, lr)
 
         start = time.time()
-        valid_loss, val_pos_loss, val_seq_loss, valid_accu = eval_epoch(model, validation_data, device, device)
+        valid_loss, val_pos_loss, val_seq_loss, valid_accu, valid_word_total = eval_epoch(model, validation_data, device, phase="Validation")
         # valid_ppl = math.exp(min(valid_loss, 100))
         valid_seq_ppl = math.exp(min(val_seq_loss, 100))
         valid_pos_ppl = math.exp(min(valid_accu, 100))
-        print_performances('Validation', valid_seq_ppl, valid_accu, valid_pos_ppl, start, lr)
+        print_performances('Validation', valid_seq_ppl, valid_accu, valid_pos_ppl, valid_word_total, start, lr)
 
         valid_losses += [valid_loss]
 
@@ -235,6 +242,14 @@ def train(model, training_data, validation_data,  optimizer, cfg, smoothing, dev
             tb_writer.add_scalars('ppl', {'train': train_seq_ppl, 'val': valid_seq_ppl}, epoch_i)
             tb_writer.add_scalars('accuracy', {'train': train_accu*100, 'val': valid_accu*100}, epoch_i)
             tb_writer.add_scalar('learning_rate', lr, epoch_i)
+        
+        if (epoch_i % 5 == 0):
+            start = time.time()
+            test_loss, test_pos_loss, test_seq_loss, test_accu, test_word_total = eval_epoch(model, test_data, device, phase="Testing")
+            test_seq_ppl = math.exp(min(val_seq_loss, 100))
+            test_pos_ppl = math.exp(min(valid_accu, 100))
+            print_performances('Testing', test_seq_ppl, test_accu, test_pos_ppl, test_word_total, start, lr)
+
 
 
 def main():
@@ -252,7 +267,7 @@ def main():
     train_loader = DataLoader(train_set, shuffle=True, batch_size=cfg.bacth_size)
     valid_loader = DataLoader(valid_set, shuffle=True, batch_size=cfg.bacth_size)
     test_loader = DataLoader(test_set, shuffle=False, batch_size=cfg.bacth_size)
-    train(transformer, train_loader, valid_loader, optimizer, cfg, smoothing=False, device=device)
+    train(transformer, train_loader, valid_loader, test_loader, optimizer, cfg, smoothing=False, device=device)
     
 
 
