@@ -27,10 +27,6 @@ AMINO_ACIDS = ['ALA', 'CYS', 'ASP', 'GLU', 'PHE', 'GLY', 'HIS', 'ILE', 'LYS', 'L
 AMINO_ACID_DICT = dict(zip(AMINO_ACIDS, range(20)))
 print(AMINO_ACID_DICT)
 
-gpu_id = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-print('gpu ID is ', str(gpu_id))
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def rescale(cube_array, standard_size=[16, 16, 16], zoom_type=None):
     """
@@ -202,45 +198,45 @@ def parse_offset(off_str):
 #         np.save(os.path.join(output_dir, "{}.npy".format(p_id)), ordred_fea_vecs)
 
 
-# def generate_data_index(fea_src_dir='/mnt/data/zxy/stage3_data/stage3-amino-keypoint-vectors/', 
-#                         label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
-#                         val_split=0.2, output_dir='../datas/tracing_data'
-#                         ):
-#         pdb_id_list = os.listdir(fea_src_dir)
-#         df = {"p_id": pdb_id_list}
-#         acid_num_list = []
-#         for p_id in pdb_id_list:
-#             acid_num_list.append(len(os.listdir(os.path.join(fea_src_dir, p_id))))
-#         df['acid_num'] = acid_num_list
-#         df = pd.DataFrame(df)
-#         def add_prefix1(str_):
-#             return fea_src_dir + str_
-#         def add_prefix2(str_):
-#             return label_src_dir + str_
-#         # df = df['featurePath'].map(add_prefix1)
-#         # df = df['label_path'].map(add_prefix2)
-#         print(df.head(6))
-#         print("Data length:", len(df))
-#         print("MAX LENGTH: ", max(df['acid_num']))
+def generate_data_index(fea_src_dir='/mnt/data/zxy/stage3_data/stage3-amino-keypoint-vectors/', 
+                        label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
+                        val_split=0.3, output_dir='../datas/tracing_data'
+                        ):
+        pdb_id_list = os.listdir(fea_src_dir)
+        df = {"p_id": pdb_id_list}
+        acid_num_list = []
+        for p_id in pdb_id_list:
+            acid_num_list.append(len(os.listdir(os.path.join(fea_src_dir, p_id))))
+        df['acid_num'] = acid_num_list
+        df = pd.DataFrame(df)
+        def add_prefix1(str_):
+            return fea_src_dir + str_
+        def add_prefix2(str_):
+            return label_src_dir + str_
+        # df = df['featurePath'].map(add_prefix1)
+        # df = df['label_path'].map(add_prefix2)
+        print(df.head(6))
+        print("Data length:", len(df))
+        print("MAX LENGTH: ", max(df['acid_num']))
 
 
-#         train_idx, val_idx = train_test_split(list(range(len(df))), test_size=val_split)
-#         _train_df = df.iloc[train_idx].reset_index(drop=True)
-#         valid_df = df.loc[val_idx].reset_index(drop=True)
+        train_idx, val_idx = train_test_split(list(range(len(df))), test_size=val_split)
+        _train_df = df.iloc[train_idx].reset_index(drop=True)
+        valid_df = df.loc[val_idx].reset_index(drop=True)
 
-#         train_idx, test_idx = train_test_split(list(range(len(_train_df))), test_size=0.2)
-#         train_df = _train_df.iloc[train_idx].reset_index(drop=True)
-#         test_df = _train_df.iloc[test_idx].reset_index(drop=True)
+        train_idx, test_idx = train_test_split(list(range(len(_train_df))), test_size=0.3)
+        train_df = _train_df.iloc[train_idx].reset_index(drop=True)
+        test_df = _train_df.iloc[test_idx].reset_index(drop=True)
 
-#         # save
-#         if not os.path.exists(output_dir):
-#             os.makedirs(output_dir)
-#         train_df.to_csv(os.path.join(output_dir, "train.csv"), index=None)
-#         valid_df.to_csv(os.path.join(output_dir, "valid.csv"), index=None)
-#         test_df.to_csv(os.path.join(output_dir, "test.csv"), index=None)
+        # save
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        train_df.to_csv(os.path.join(output_dir, "train.csv"), index=None)
+        valid_df.to_csv(os.path.join(output_dir, "valid.csv"), index=None)
+        test_df.to_csv(os.path.join(output_dir, "test.csv"), index=None)
 
-#         print("Train sets len:{} \t Valid sets len: {}\t Test sets len: {}".format(len(train_df), len(valid_df),
-#                                                                                    len(test_df)))
+        print("Train sets len:{} \t Valid sets len: {}\t Test sets len: {}".format(len(train_df), len(valid_df),
+                                                                                   len(test_df)))
 
 
 class AminoFeatureDataset(Dataset):
@@ -251,25 +247,33 @@ class AminoFeatureDataset(Dataset):
                  max_len = 512, dims = 13, 
                  input_shuffle=True, z_score_coords=False,
                  pad_idx=0,
-                 padding=True, padding_form=None,
+                 padding=True, padding_form=None, zero_center = False,
                  zoom_type="diff"):
         self.feature_src_dir = fea_src_dir
         self.labels_src_dir = label_src_dir
         self.max_len = max_len
         self.dims = dims
         self.shuffle = input_shuffle
+        self.zero_center = zero_center
         self.padding_form = padding_form
         self.z_score_coords = z_score_coords
         if z_score_coords:
             self.relative_coords_mean, self.relative_coords_std = [0.5723359403092108, 0.11603875481456773]
         self.index_csv = index_csv
         self.pid = pd.read_csv(index_csv)["p_id"]
+        self.pid_visable = False
+    
+    def set_visiable(self, states=False):
+        self.pid_visable = states
     
     def __getitem__(self, index: int):
         """
-            Add EOS and padding for each protein.
+            Add BOS, EOS and padding for each protein(labels token).
         """
         pid = self.pid[index]
+        if self.pid_visable:
+            print("curr protein id is : {}".format(pid))
+            
         protein_fea_dir = os.path.join(self.feature_src_dir, pid)
         protein_label_dir = os.path.join(self.labels_src_dir, pid)
         
@@ -288,9 +292,14 @@ class AminoFeatureDataset(Dataset):
         if self.z_score_coords:
             data_array[:detected_amino_nums][1:] = (data_array[:detected_amino_nums][1:] - self.relative_coords_mean) / self.relative_coords_std
         
-        # add EOS
-        data_array[detected_amino_nums][0] = 21.0
+        # # add BOS
+        # data_array[1:] = data_array[:-1]
+        # data_array[0] = np.array([22.0] + [0.0] * 12)
+
+        # # add EOS
+        # data_array[detected_amino_nums][0] = 21.0
         # add padding
+
         if self.padding_form is not None:
             for j in range(detected_amino_nums+1, self.max_len):
                 data_array[j] = self.padding_form
@@ -302,9 +311,18 @@ class AminoFeatureDataset(Dataset):
         # normalize coordinates
         if self.z_score_coords:
             label_vec[:, 1:] = (label_vec[:, 1:] - self.relative_coords_mean) / self.relative_coords_std
+        
+        if self.zero_center:
+            label_vec[:, 1:] = (label_vec[:, 1:] - 0.5) / 0.5
+
         label_array = np.zeros([self.max_len, self.dims])
-        label_array[:label_amino_nums] = label_vec
-        label_array[label_amino_nums][0] = 21.0                             # add EOS
+        label_array[1:label_amino_nums+1] = label_vec                          
+
+        # # add BOS
+        # label_array[1:] = data_array[:-1]
+        label_array[0][0] = 22.0
+        # add EOS
+        label_array[label_amino_nums][0] = 21.0   
         
         return data_array, label_array
 
@@ -314,6 +332,11 @@ class AminoFeatureDataset(Dataset):
 
 
 if __name__ =='__main__':
+    gpu_id = "0, 1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    print('gpu ID is ', str(gpu_id))
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     # model = torch.load('./checkpoints/Hourglass3D_Regression/2022-03-07observation_11.00.06/best_HG3_CNN.pt', map_location='cpu')
     # model.to(device)
     # generate_input_data(model, index_csv='../datas/split/train.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/')
@@ -321,7 +344,7 @@ if __name__ =='__main__':
     # generate_input_data(model, index_csv='../datas/split/valid.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/')
     # print(model.state_dict())
     
-    # test generated data
+    # # test generated data
     # fea_npy_dir = "/mnt/data/zxy/stage3-amino-keypoint-vectors/6OD0/"
     # file_list = os.listdir(fea_npy_dir)
     # for _fn in file_list:
@@ -334,27 +357,27 @@ if __name__ =='__main__':
     # print(data[20:23], data[23:26], data[26:29], data[29:32])
 
     # generate_output_data()
-    # generate_data_index()
+    generate_data_index(output_dir='../datas/tracing_data2')
 
 
-    the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
-    the_loader  = DataLoader(the_dataset, batch_size=2)
-    for idx, data in enumerate(the_loader):
-        seq_data_array = data[0].to(torch.float32).to(device)
-        labels = data[1].to(torch.float32).to(device)
-        print(seq_data_array.shape)
-        print(labels.shape)
-        print("***********************\n")
-        print(seq_data_array[0])
-        print(seq_data_array[1])
-        print(labels[0])
-        print(labels[1])
+    # the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
+    # the_loader  = DataLoader(the_dataset, batch_size=2)
+    # for idx, data in enumerate(the_loader):
+    #     seq_data_array = data[0].to(torch.float32).to(device)
+    #     labels = data[1].to(torch.float32).to(device)
+    #     print(seq_data_array.shape)
+    #     print(labels.shape)
+    #     print("***********************\n")
+    #     print(seq_data_array[0])
+    #     print(seq_data_array[1])
+    #     print(labels[0])
+    #     print(labels[1])
 
 
-        s1 = seq_data_array[0]
-        s2 = seq_data_array[1]
-        print("\nSUM-1: {}".format((s1 == s2).sum()))
-        l1 = labels[0]
-        l2 = labels[1]
-        print("\nSUM-2: {}".format((l1 == l2).sum()))
-        break
+    #     s1 = seq_data_array[0]
+    #     s2 = seq_data_array[1]
+    #     print("\nSUM-1: {}".format((s1 == s2).sum()))
+    #     l1 = labels[0]
+    #     l2 = labels[1]
+    #     print("\nSUM-2: {}".format((l1 == l2).sum()))
+    #     break

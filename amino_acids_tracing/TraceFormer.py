@@ -1,5 +1,4 @@
 
-from re import S
 from turtle import forward
 from webbrowser import get
 from numpy import diag_indices
@@ -10,11 +9,6 @@ import torch.nn.functional as F
 import copy, math, os
 from amino_fea_loader import AminoFeatureDataset
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
-
-gpu_id = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-print('gpu ID is ', str(gpu_id))
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class ScheduledOptim():
@@ -361,7 +355,7 @@ class Transformer(nn.Module):
             scale_emb=scale_emb
         )
 
-        self.trg_amino_type_prj = nn.Linear(d_model, 22, bias=False)
+        self.trg_amino_type_prj = nn.Linear(d_model, 23, bias=False)        # project to 22D or 23D ?
         self.trg_amino_pos_prj = nn.Linear(d_model, 12, bias=False)
         # self.linear_clf = nn.Linear(d_amino_type_vec, 22)
         # self.linear_pos = nn.linear(12, 12)
@@ -399,6 +393,12 @@ class Transformer(nn.Module):
 if __name__ == '__main__': 
     # embs = Encoder_Embedding(fea_dim=32, max_seq_len=512)
     # embs.cls()
+
+    gpu_id = "0, 1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    print('gpu ID is ', str(gpu_id))
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
     the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
     the_loader  = DataLoader(the_dataset, batch_size=1)
