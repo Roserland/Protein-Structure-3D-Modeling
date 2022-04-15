@@ -160,7 +160,7 @@ def train_epoch(model, training_data, optimizer, opt, device, smoothing):
     loss_per_word = type_loss/n_word_total
     accuracy = n_word_correct/n_word_total
     pos_loss_per_amino = pos_loss / n_word_total
-    return loss, pos_loss_per_amino, loss_per_word, accuracy, n_word_total
+    return total_loss, pos_loss_per_amino, loss_per_word, accuracy, n_word_total
 
 
 def eval_epoch(model, validation_data, device=device, phase="Validation"):
@@ -196,7 +196,7 @@ def eval_epoch(model, validation_data, device=device, phase="Validation"):
     loss_per_word = type_loss/n_word_total
     accuracy = n_word_correct/n_word_total
     pos_loss_per_amino = pos_loss / n_word_total
-    return loss, pos_loss_per_amino, loss_per_word, accuracy, n_word_total
+    return total_loss, pos_loss_per_amino, loss_per_word, accuracy, n_word_total
 
 
 def train(model, training_data, validation_data, test_data, optimizer, cfg, smoothing, device=device):
@@ -213,8 +213,8 @@ def train(model, training_data, validation_data, test_data, optimizer, cfg, smoo
         log_train_file, log_valid_file))
     
     with open(log_train_file, 'w') as log_tf, open(log_valid_file, 'w') as log_vf:
-        log_tf.write('epoch,loss,ppl,accuracy\n')
-        log_vf.write('epoch,loss,ppl,accuracy\n')
+        log_tf.write('epoch,loss,seq_loss,pos_loss,accuracy\n')
+        log_vf.write('epoch,loss,seq_loss,pos_loss,accuracy\n')
     
     def print_performances(header, seq_loss, accu, pos_loss, word_total, start_time, lr):
         print('  - {header:12} seq_loss: {seq_loss: 8.5f}, pos_loss:{pos_loss:8.5f}, accuracy: {accu:3.3f} %, \
@@ -266,12 +266,12 @@ def train(model, training_data, validation_data, test_data, optimizer, cfg, smoo
                 print('    - [Info] The checkpoint file has been updated.')
         
         with open(log_train_file, 'a') as log_tf, open(log_valid_file, 'a') as log_vf:
-            log_tf.write('{epoch},{loss: 8.5f},{ppl: 8.5f},{accu:3.3f}\n'.format(
+            log_tf.write('{epoch},{loss: 8.5f},{seq_loss: 8.5f},{pos_loss: 8.5f},{accu:3.3f}\n'.format(
                 epoch=epoch_i, loss=train_loss,
-                ppl=train_seq_ppl, accu=100*train_accu))
-            log_vf.write('{epoch},{loss: 8.5f},{ppl: 8.5f},{accu:3.3f}\n'.format(
+                seq_loss=train_seq_ppl, pos_loss=train_pos_ppl, accu=100*train_accu))
+            log_vf.write('{epoch},{loss: 8.5f},{seq_loss: 8.5f},{pos_loss: 8.5f},{accu:3.3f}\n'.format(
                 epoch=epoch_i, loss=valid_loss,
-                ppl=valid_seq_ppl, accu=100*valid_accu))
+                seq_loss=valid_seq_ppl, pos_loss=valid_pos_ppl, accu=100*valid_accu))
 
         if cfg.use_tb:
             tb_writer.add_scalars('ppl', {'train': train_seq_ppl, 'val': valid_seq_ppl}, epoch_i)

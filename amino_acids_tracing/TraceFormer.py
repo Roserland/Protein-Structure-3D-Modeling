@@ -1,6 +1,10 @@
 
-from turtle import forward
-from webbrowser import get
+"""
+    考虑方法合理性
+    考虑这样一种可能: 将 tracing type, 和 tracing position 分割开
+                    对于给定的集合,  先预测其  type-seq
+                    然后通过后处理等方法， 得到整个的sequence prediction
+"""
 from numpy import diag_indices
 import numpy as np
 import torch

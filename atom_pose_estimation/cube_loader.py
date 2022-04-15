@@ -595,7 +595,7 @@ if __name__ == '__main__':
     # aa = np.random.randint(0, 255, origin_size)
     # print(aa.shape)
     # print(aa[:10, :10, 1])
-    #
+    
     # standard_size = [32, 32, 32]
     # scale = (standard_size[0] / origin_size[0],
     #          standard_size[1] / origin_size[1],
@@ -605,23 +605,23 @@ if __name__ == '__main__':
     # print(rest.shape)
     # print(rest[:10, :10, 1])
 
-    # EMdata_dir = '/Volumes/RS/amino-acid-detection/EMdata_dir/400_500/'
-    # mrc_fragment_dirs = '/Volumes/RS/amino-acid-detection/test_data/mrc_fragments/'
-    # pdb_fragment_dirs = '/Volumes/RS/amino-acid-detection/test_data/pdb_fragments/'
-    # generate_index_and_split_data(EMdata_dir, mrc_fragment_dirs, pdb_fragment_dirs, output_dir='./datas/')
-    # # split data into 3 "Trian, Valid, Test" datasets.
-    # split_data(pdb_index_csv='./datas/pdb_index.csv', mrc_index_csv='./datas/mrc_index.csv', output_dir='./datas/split/')
+    EMdata_dir = '/mnt/data/zxy/amino-acid-detection/EMdata_dir/400_500/'
+    mrc_fragment_dirs = '/mnt/data/zxy/amino-acid-detection/test_data/mrc_fragments/'
+    pdb_fragment_dirs = '/mnt/data/zxy/amino-acid-detection/test_data/pdb_fragments/'
+    generate_index_and_split_data(EMdata_dir, mrc_fragment_dirs, pdb_fragment_dirs, output_dir='./datas/')
+    # split data into 3 "Trian, Valid, Test" datasets.
+    split_data(pdb_index_csv='./datas/pdb_index.csv', mrc_index_csv='./datas/mrc_index.csv', output_dir='./datas/split/')
     
 
     # test heatmap generator
-    heatmap_generator = HeatmapGenerator3D(sigma=1.0)
-    print(heatmap_generator.kernel)
-    data_array = np.zeros([4, 4, 4])
-    print("***************************************")
-    pos = [[3, 3, 2.5]]
-    res = heatmap_generator.heatmap3D(data_array, pos)
-    print(res[0, 0, :, :])
-    print(res[0, 1, :, :])
-    print(res[0, 2, :, :])
-    print(res[0, 3, :, :])
+    # heatmap_generator = HeatmapGenerator3D(sigma=1.0)
+    # print(heatmap_generator.kernel)
+    # data_array = np.zeros([4, 4, 4])
+    # print("***************************************")
+    # pos = [[3, 3, 2.5]]
+    # res = heatmap_generator.heatmap3D(data_array, pos)
+    # print(res[0, 0, :, :])
+    # print(res[0, 1, :, :])
+    # print(res[0, 2, :, :])
+    # print(res[0, 3, :, :])
     

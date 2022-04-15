@@ -239,6 +239,18 @@ def generate_data_index(fea_src_dir='/mnt/data/zxy/stage3_data/stage3-amino-keyp
                                                                                    len(test_df)))
 
 
+def random_shift_and_rotate(data_array, radius=0.1, shift=[0.1, 0.1, 0.1], theta=1.0, gamma=1.0):
+    """
+    A data argumentation method, 
+        data_array: 1 x 13D vector
+        radius: rotation radius
+        theta: rotatation angle_1
+        gamma: rotatation angle_2
+    """
+    pass
+
+
+
 class AminoFeatureDataset(Dataset):
     def __init__(self, index_csv, 
                  fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', 
@@ -258,7 +270,8 @@ class AminoFeatureDataset(Dataset):
         self.padding_form = padding_form
         self.z_score_coords = z_score_coords
         if z_score_coords:
-            self.relative_coords_mean, self.relative_coords_std = [0.5723359403092108, 0.11603875481456773]
+            self.relative_coords_mean, self.relative_coords_std = [0.2861679701546054, 0.05801937740728386]
+            #   0.5723359403092108, 0.11603875481456773
         self.index_csv = index_csv
         self.pid = pd.read_csv(index_csv)["p_id"]
         self.pid_visable = False
@@ -306,8 +319,9 @@ class AminoFeatureDataset(Dataset):
         
         # prepare output / Decoder Input
         label_file = os.path.join(protein_label_dir, "{}.npy".format(pid))
-        label_vec = np.load(os.path.join(protein_label_dir, label_file))
+        label_vec = np.load(label_file)
         label_amino_nums = len(label_vec)
+
         # normalize coordinates
         if self.z_score_coords:
             label_vec[:, 1:] = (label_vec[:, 1:] - self.relative_coords_mean) / self.relative_coords_std

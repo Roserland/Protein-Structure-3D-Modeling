@@ -160,6 +160,9 @@ def split_protein_into_amino_acid(map_path, pdb_path, pdb_output_path, mrc_outpu
     """
     # prepare protein fragments directory
     pdb_id = os.path.basename(pdb_path)[:-4]
+    if ".rebuilt" in pdb_id:
+        pdb_id = pdb_id[:4]
+    print("pdb -id: ", pdb_id)
     pdb_fragments_dir = os.path.join(pdb_output_path, pdb_id)
     if not os.path.exists(pdb_fragments_dir):
         os.makedirs(pdb_fragments_dir)
@@ -186,12 +189,12 @@ def split_protein_into_amino_acid(map_path, pdb_path, pdb_output_path, mrc_outpu
 
         lines_list = []
         for line in pdb_file:
-            if line.startswith("ATOM"):
+            if line.startswith("ATOM") or line.startswith("TER"):                                       # for preserving the last amino in a seq
                 if amino_acid_num == 'None':
                     amino_acid_num = parse_amino_acid_num(line)
                     amino_acid = parse_amino_acid(line)
                     lines_list.append(line)
-                if parse_amino_acid_num(line) != amino_acid_num:
+                if line.startswith("TER") or parse_amino_acid_num(line) != amino_acid_num:              # for preserving the last amino in a seq
                     # new amino acid atoms
                     # write the old fragment
                     fragment_path = os.path.join(pdb_fragments_dir, str(amino_acid_num) + '.pdb')       # write sub-pdb
@@ -232,7 +235,7 @@ def split_protein_into_amino_acid(map_path, pdb_path, pdb_output_path, mrc_outpu
                                      y1 - padding, y2 + padding,
                                      z1 - padding, z2 + padding,
                                      amino_acids.index(amino_acid) + 1])
-                            with mrcfile.new(tmp_mrc_file_name) as tmp_mrc:                   # write sub-mrc
+                            with mrcfile.new(tmp_mrc_file_name, overwrite=True) as tmp_mrc:                   # write sub-mrc
                                 tmp_mrc.set_data(cube)
                         else:
                             print("amino acid num {} in protein {} is at the boundary".format(amino_acids.index(amino_acid) + 1, pdb_id))
@@ -241,6 +244,9 @@ def split_protein_into_amino_acid(map_path, pdb_path, pdb_output_path, mrc_outpu
                     x1, y1, z1, x2, y2, z2 = [shape[0] - 1, shape[1] - 1, shape[2] - 1, 0, 0, 0]
                 else:
                     lines_list.append(line)
+
+                if line.startswith("TER"):
+                    break
 
                 coordinates = parse_coordinates(line)
                 # pdb 是按 z, y, x 排列的
@@ -255,6 +261,11 @@ def split_protein_into_amino_acid(map_path, pdb_path, pdb_output_path, mrc_outpu
                 y2 = max(y2, y)
                 z1 = min(z1, z)
                 z2 = max(z2, z)
+    
+    # # write the last sub-pdb
+    # fragment_path = os.path.join(pdb_fragments_dir, str(amino_acid_num) + '.pdb')       # write sub-pdb
+    # write_fragment(lines_list, file_path=fragment_path)
+
     return amino_acid_coordinates
 
 
@@ -296,8 +307,8 @@ if __name__ == '__main__':
         if os.path.exists(map_path) and os.path.exists(pdb_path):
             # crop_map_and_save_coordinates(map_path, pdb_path, args.pp_dir)
             split_protein_into_amino_acid(map_path, pdb_path,
-                                          pdb_output_path='{}/pdb_fragments/'.format(data_root_dir),
-                                          mrc_output_path='{}/mrc_fragments/'.format(data_root_dir), padding=2)
+                                          pdb_output_path='{}/pdb_fragments_new/'.format(data_root_dir),
+                                          mrc_output_path='{}/mrc_fragments_new/'.format(data_root_dir), padding=2)
             print('finish {}'.format(pdb_id))
 
     # test()

@@ -84,7 +84,7 @@ def parse_offset(off_str):
 
 
 
-def generate_input_data(model, index_csv='../datas/split/train.csv', save_dir='/mnt/data/zxy/stage3_data/stage3-amino-keypoint-vectors/',
+def generate_input_data(model, index_csv='./datas/split/train.csv', save_dir='/mnt/data/zxy/stage3_data/stage3-amino-keypoint-vectors/',
                         absolute=True):
     """
         Using the feature vector produced from Stage-2
@@ -178,10 +178,11 @@ def get_amino_type_from_pdb(pdb_file_path):
     return amino_acid
 
 def get_voxel_pos(pdb_pos, mrc_offset):
-    z = int(pdb_pos[0] - mrc_offset[0]) * 2
-    y = int(pdb_pos[1] - mrc_offset[1]) * 2
-    x = int(pdb_pos[2] - mrc_offset[2]) * 2
+    z = int(pdb_pos[0] - mrc_offset[0]) # * 2
+    y = int(pdb_pos[1] - mrc_offset[1]) # * 2
+    x = int(pdb_pos[2] - mrc_offset[2]) # * 2
     return [x, y, z]
+
 
 def generate_output_data(src_dir="/mnt/data/zxy/amino-acid-detection/test_data/pdb_fragments/", 
                          dst_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
@@ -240,7 +241,7 @@ def generate_output_data(src_dir="/mnt/data/zxy/amino-acid-detection/test_data/p
             feature_vec[0] = AMINO_ACID_DICT[amino_type] + 1.0
             curr_offset = offset_dict[p_id]
             feature_vec[1:4] = get_voxel_pos(ca, curr_offset)                                   # need add offset
-            feature_vec[4:7] = get_voxel_pos(n, curr_offset)
+            feature_vec[4:7] = get_voxel_pos(n, curr_offset)            # the coordinates may double
             feature_vec[7:10] = get_voxel_pos(c, curr_offset)
             feature_vec[10:13] = get_voxel_pos(o, curr_offset)
             array_list.append(feature_vec)
@@ -255,6 +256,8 @@ def generate_output_data(src_dir="/mnt/data/zxy/amino-acid-detection/test_data/p
             z_pos_std.incre_in_list(ordred_fea_vecs[:, i+2])
         # print(ordred_fea_vecs[:5])
         np.save(os.path.join(output_dir, "{}.npy".format(p_id)), ordred_fea_vecs)
+        np.save(os.path.join(output_dir, "{}_amino_seq_idxs.npy".format(p_id)), np.array(index_list)[order])
+
         print("x_mean_std: {} {} \ty_mean_std: {} {} \tz_mean_std: {} {} ".format(
             x_pos_std.avg, x_pos_std.std, y_pos_std.avg, y_pos_std.std, z_pos_std.avg, z_pos_std.std, 
         ))
@@ -355,11 +358,12 @@ class AminoFeatureDataset(Dataset):
 
 
 if __name__ =='__main__':
-    # model = torch.load('./checkpoints/Hourglass3D_Regression/2022-03-07observation_11.00.06/best_HG3_CNN.pt', map_location='cpu')
-    # model.to(device)
-    # generate_input_data(model, index_csv='../datas/split/train.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', absolute=False)
-    # generate_input_data(model, index_csv='../datas/split/test.csv',  save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', absolute=False)
-    # generate_input_data(model, index_csv='../datas/split/valid.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', absolute=False)
+    model = torch.load('./checkpoints/Hourglass3D_Regression/2022-03-07observation_11.00.06/best_HG3_CNN.pt', map_location='cpu')
+    # './datas/split/train.csv'  :  store the newy added vector
+    # '../datas/split/train.csv' :  the older version, used for backend
+    # generate_input_data(model, index_csv='./datas/split/train.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', absolute=False)
+    # generate_input_data(model, index_csv='./datas/split/test.csv',  save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', absolute=False)
+    # generate_input_data(model, index_csv='./datas/split/valid.csv', save_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', absolute=False)
     # print(model.state_dict())
 
     # test generated data
@@ -375,7 +379,7 @@ if __name__ =='__main__':
     # print(data[20:23], data[23:26], data[26:29], data[29:32])
 
     generate_output_data()
-    # generate_data_index()
+    generate_data_index()
     pdb_src_dir = '/mnt/data/zxy/stage3_data/stage3_labels/'
     
 

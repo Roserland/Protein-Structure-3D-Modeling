@@ -34,5 +34,16 @@ class Config:
         self.eos_idx = 21.0
         ## decoder
         self.beam_size = 1
+        
 
+class ProteinProperties():
+    """
+        Some properties get by processing original pdb_files
+    """
+    def __init__(self) -> None:
+        self.ca_dist_low = 2.0
+        self.ca_dist_high = 4.2
+
+        self.c_n_dist_low = 0.8
+        self.c_n_dist_high = 1.2
     
