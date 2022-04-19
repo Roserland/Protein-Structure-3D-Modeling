@@ -5,13 +5,14 @@
                     对于给定的集合,  先预测其  type-seq
                     然后通过后处理等方法， 得到整个的sequence prediction
 """
+from turtle import forward
 from numpy import diag_indices
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy, math, os
-from amino_fea_loader import AminoFeatureDataset
+from amino_fea_loader import AminoFeatureDataset, LinkageSet
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
 
@@ -245,7 +246,7 @@ class Encoder(nn.Module):
 
         self.src_amino_vec = nn.Embedding(n_amino_feature, d_amino_vec, padding_idx=pad_idx)    # n_amino_feature set to 22, d_amino_vec set to 8
         self.position_eonc = Encoder_Embedding(fea_dim=d_model, max_seq_len=max_len)            # TODO: change the Encoding format
-        self.linearB = nn.Linear(20, d_model)
+        self.linearB = nn.Linear(20, d_model)           # 20 = 8 + 12
         self.dropout = nn.Dropout(dropout)
         self.layer_stack = nn.ModuleList([
             EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)
@@ -392,7 +393,42 @@ class Transformer(nn.Module):
         amino_pos = seq_pos
         return amino_seq, amino_pos
         # return seq_logit.view(-1, seq_logit.size(2)), seq_pos.view(-1, seq_pos.size[2])
-        
+
+
+class LinkageFormer(nn.Module):
+    def __init__(self, 
+                 n_src_vocab=21, n_trg_vocab=21, src_pad_idx=0, trg_pad_idx=0, 
+                 d_amino_type_vec=8, d_model=512, d_inner=2048, 
+                 n_layers=6, n_head=8, d_k=64, d_v=64, dropout=0.1, n_position=512,
+                 scale_emb_or_prj='prj') -> None:
+
+        super().__init__()
+
+        self.n_src_vocab = n_src_vocab  # default set to 21 (1-20 as type, 1 as padding)
+        self.n_trg_vocab = n_trg_vocab
+        self.src_pad_idx = src_pad_idx
+
+        self.d_model = d_model
+
+        self.encoder = Encoder(
+            n_amino_feature=n_src_vocab, d_amino_vec=d_amino_type_vec, n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
+            d_model=d_model, d_inner=d_inner, pad_idx=src_pad_idx, dropout=dropout, n_posititon=n_position,         
+            scale_emb='none',
+        )
+
+        self.link_vec_len = n_position          # the linkage vector length is equal to max_len, or the sequence len
+
+        self.last_linear = nn.Linear(d_model, self.link_vec_len, bias=False)
+
+    def forward(self, src_seq, trg_seq):
+        # trg_seq = None
+        src_mask = get_pad_mask(src_seq[:, :, 0], self.src_pad_idx)              # just ignore the 'empty' class
+
+        enc_output = self.encoder(src_seq, src_mask)
+        output = self.last_linear(enc_output)
+
+        return output
+
 
 if __name__ == '__main__': 
     # embs = Encoder_Embedding(fea_dim=32, max_seq_len=512)
@@ -404,8 +440,8 @@ if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-    the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
-    the_loader  = DataLoader(the_dataset, batch_size=1)
+    # the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
+    # the_loader  = DataLoader(the_dataset, batch_size=1)
 
     encoder = Encoder(n_amino_feature=22, d_amino_vec=8, n_layers=6, n_head=8, d_k=512, d_v=512,
                             d_model=512, d_inner=2048, pad_idx=0, dropout=0.1).to(device)
@@ -413,31 +449,46 @@ if __name__ == '__main__':
                         d_model=512, d_inner=2048, pad_idx=0, dropout=0.1).to(device)
     model = Transformer(n_src_vocab=22, n_trg_vocab=22).to(device)
 
+    linkage_model = LinkageFormer().to(device)
+    the_dataset = LinkageSet(index_csv='../datas/tracing_data/test.csv', using_gt=False)
+    the_loader  = DataLoader(the_dataset, batch_size=2)
+    encoder = Encoder(n_amino_feature=21, d_amino_vec=8, n_layers=6, n_head=8, d_k=512, d_v=512,
+                            d_model=512, d_inner=2048, pad_idx=0, dropout=0.1).to(device)
+
     for idx, data in enumerate(the_loader):
         seq_data_array = data[0].to(torch.float32).to(device)
-        # print("Encoder Seq shape: ", seq_data_array.shape)
-        labels = data[1].to(torch.float32).to(device)
-        # print("Decoder Seq shape: ", labels.shape)
+        print("Encoder Seq shape: ", seq_data_array.shape)
+        labels = data[1].to(torch.float32).to(device)               # TODO: padding bugs
+        print("Decoder Seq shape: ", labels.shape)
+        amino_nums = data[2]
+        print("amino nums: ", amino_nums)
         # print(seq_data_array)
-        # print(labels)
+        print(labels)
         
         src_mask = get_pad_mask(seq_data_array[:, :, 0], pad_idx=0)                 # TODO: check masks
         # print("src_mask shape: ", src_mask.shape)
         # print(src_mask)
         # src_mask = None
-        enc_output = encoder(seq_data_array, src_mask)
-        # print(enc_output)
+        # enc_output = encoder(seq_data_array, src_mask)
+        # print(enc_output)    
+
+        # enc_output_2 = encoder(labels, src_mask)
+        # print(enc_output_2)
+
+        output = linkage_model(seq_data_array, src_mask)
+        print(output)
+        print(output.shape)
 
         # print("\n******* Decoder Part *******\n")
-        trg_mask = get_pad_mask(labels[:, :, 0], pad_idx=0)  & get_subsequent_mask(labels)
-        dec_output = decoder(labels, trg_mask, enc_output, src_mask)
+        # trg_mask = get_pad_mask(labels[:, :, 0], pad_idx=0)  & get_subsequent_mask(labels)
+        # dec_output = decoder(labels, trg_mask, enc_output, src_mask)
         # print("dec_output shape:", dec_output.shape)
         # print(dec_output[0])
 
-        amino_seq, amino_pos =  model(seq_data_array, labels)
-        print("\n============Transformer model output:==============")
-        print(amino_seq.shape)
-        print(amino_seq)
-        print(amino_pos.shape)
-        print(amino_pos)
+        # amino_seq, amino_pos =  model(seq_data_array, labels)
+        # print("\n============Transformer model output:==============")
+        # print(amino_seq.shape)
+        # print(amino_seq)
+        # print(amino_pos.shape)
+        # print(amino_pos)
         break

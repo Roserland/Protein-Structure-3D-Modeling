@@ -95,8 +95,8 @@ class UniProtein():
         self.max_len = max_len
         self.shuffle = shuffle
         self.dist_rescaling = dist_rescaling
-        self.inkage_gt_square = None
-        self.inkage_gt_sets   = None
+        self.linkage_gt_square = None
+        self.linkage_gt_sets   = None
         
         self.load_tracked_amino_acids()
         self.load_gt_amino_acids()
@@ -162,7 +162,7 @@ class UniProtein():
                 gt[item, item - 1] = 0
                 gt[item - 1, item] = 0
 
-        self.inkage_gt_square = gt
+        self.linkage_gt_square = gt
 
 
     def construct_linkage_set(self):
@@ -176,7 +176,7 @@ class UniProtein():
             if self.inkage_gt_square[i, i-1]:
                 linkage_list.append([i, i-1])
         
-        self.inkage_gt_sets = linkage_list
+        self.linkage_gt_sets = linkage_list
         
 
 
