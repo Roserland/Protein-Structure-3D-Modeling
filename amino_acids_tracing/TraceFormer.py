@@ -266,6 +266,10 @@ class Encoder(nn.Module):
 
         # enc_output = self.src_amino_vec(src_seq)
         enc_output = self.linearB(fea_vec)
+
+        # Encoder Embedding
+        enc_output = self.position_eonc(enc_output)
+
         if self.scale_emb:
             enc_output *= self.d_model ** 0.5
         enc_output = self.dropout(enc_output)

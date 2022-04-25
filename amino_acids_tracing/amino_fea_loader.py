@@ -431,10 +431,11 @@ class AminoLinkageDataset(Dataset):
 
 class UniProtein():
     def __init__(self, protein_id, max_len=512,
+                block_index=0,
                 pad_index=2,
                 fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', 
                 label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
-                shuffle=True, dist_rescaling=True) -> None:
+                shuffle=False, dist_rescaling=True) -> None:
         
         self.protein_id = protein_id
         self.data_dir = os.path.join(fea_src_dir, protein_id)
@@ -491,8 +492,18 @@ class UniProtein():
         index_vec = np.load(self.label_index_file)
         index_vec = np.sort(index_vec)
 
+        # for some indices is less than 0 
+        # after sorting, the index_vec[0] is the minimum
+        if index_vec[0] < 0:
+            index_vec = index_vec - index_vec[0] + 1
+
         exists = np.zeros(index_vec[-1])
         exists[index_vec - 1] = 1
+        # try:
+        #     exists[index_vec - 1] = 1
+        # except IndexError:
+        #     print("In protein {}, the min amino: idx {} \t max amino idx: {}".format(
+        #         self.protein_id, index_vec[0], index_vec[-1]))
         self.index_vec = index_vec
         missing_idxs = np.where(exists == 0)[0]
         
@@ -555,7 +566,7 @@ class LinkageSet(Dataset):
                 fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', 
                 label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
                 using_gt = False,
-                shuffle=True, dist_rescaling=True) -> None:
+                shuffle=False, dist_rescaling=True) -> None:
         super().__init__()
 
         self.index_csv = index_csv
@@ -585,7 +596,7 @@ class LinkageSet(Dataset):
     def __getitem__(self, index):
         t_protein = UniProtein(self.pids[index], pad_index=self.pad_idx)
         index_vec = t_protein.index_vec
-        print("All amino nums in Protein {} is {}".format(self.pids[index], index_vec[-1]))
+        # print("All amino nums in Protein {} is {}".format(self.pids[index], index_vec[-1]))
 
         amino_data_array = t_protein.data_array             # estimated data, extract from detected cube
         amino_data_gt = t_protein.label_data                # ground truth data, loaded from the .pdb file

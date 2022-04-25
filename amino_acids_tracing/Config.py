@@ -9,12 +9,13 @@ class Config:
         self.output_dir = './output_dir/'
 
         # Training paramters
-        self.bacth_size = 12
+        self.bacth_size = 4
         self.num_epochs = 10000
-        self.lr = 0.001
+        self.lr = 0.0001
         self.d_model = 512
         self.lr_mul = 0.99
-        self.n_warmup_steps = 4000
+        self.n_warmup_steps = 4000 / 2
+        
         
         ## loss weight
         self.clf_loss_weight = 1.0
