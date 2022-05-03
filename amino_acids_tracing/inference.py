@@ -3,14 +3,16 @@
             2. Generate type-seq and correspondingly positions seperately
 
 """
-import os
+import os, tqdm
 import torch
 import torch.nn as nn
 import torch.functional as F
 from torch.utils.data import DataLoader
-from TraceFormer import Transformer, get_pad_mask, get_subsequent_mask
-from amino_fea_loader import AminoFeatureDataset
+from TraceFormer import Transformer, LinkageFormer, get_pad_mask, get_subsequent_mask
+from amino_fea_loader import AminoFeatureDataset, LinkageSet
 from Config import Config
+import numpy as np
+from linkage_train import cal_performance as _cal_performance
 
 cfg = Config()
 
@@ -91,6 +93,58 @@ def _inference_test(cfg, device):
 
 def load_model():
     pass
+
+
+def linkage_inference(cfg, device):
+    # load model
+    linkage_model = LinkageFormer(n_layers=2)
+    linkage_model = torch.nn.DataParallel(linkage_model, device_ids=device_ids)
+
+    ckpnt = torch.load(cfg.linkage_model_path)
+    _state_dict = ckpnt['model']
+    linkage_model.load_state_dict(_state_dict)  
+
+    test_set  = LinkageSet(index_csv='../datas/tracing_data2/test.csv',  using_gt=False)
+    test_loader = DataLoader(test_set, shuffle=False, batch_size=1)
+
+    linkage_model.eval()
+
+    total_loss, link_acc, non_linl_acc = 0, 0, 0
+    tp_all, fp_all, fn_all, tn_all = 0, 0, 0, 0
+    # calculate perfomance
+    _preds = np.array([])
+    _gts = np.array([])
+    for batch_data in tqdm(test_loader, mininterval=2, desc="infer", leave=False):
+        # prepare data
+        seq_data_array = batch_data[0].to(torch.float32).cuda(device=device_ids[0])     #.to(device)
+        labels = batch_data[1].to(torch.float32).cuda(device=device_ids[0])             # batch x seq_len(512) x 13
+                                                                                        # Need to add a BOS token
+        amino_nums = batch_data[2]
+
+        src_mask = get_pad_mask(seq_data_array[:, :, 0], pad_idx=0)                     # get mask
+
+        # forward
+        pred_linkage = linkage_model(seq_data_array, src_mask)
+        the_pred, the_gt, loss, tn, fp, fn, tp, total = \
+            _cal_performance(pred_linkage, labels, ignore_index=2, focal_loss=True)
+        _preds = np.concatenate(_preds, the_pred.cpu().detach().numpy)
+        _gts = np.concatenate(_gts, the_gt.cpu().detach().numpy)
+    
+    total_loss += loss.item()
+    tp_all += tp
+    tn_all += tn
+    fp_all += fp
+    fn_all += fn
+
+    total = tp_all + tn_all + fp_all +fn_all
+    acc = (tp_all + tn_all) / total
+    precision_all = tp_all / (tp_all + fp_all)
+    recall_all = tp_all / (tp_all + fn_all)
+    return total_loss, tp_all, fn_all, fp_all, tn_all, total, acc, precision_all, recall_all
+
+
+
+
 
 
 def function_test():

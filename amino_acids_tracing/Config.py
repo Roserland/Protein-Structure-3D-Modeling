@@ -9,7 +9,7 @@ class Config:
         self.output_dir = './output_dir/'
 
         # Training paramters
-        self.bacth_size = 4
+        self.bacth_size = 8
         self.num_epochs = 10000
         self.lr = 0.0001
         self.d_model = 512
@@ -28,6 +28,7 @@ class Config:
         self.save_mode = "all"
         # self.best_model_path = './ckpnts_dir/2022-04-02-2145/model_accu_99.693.chkpt'
         self.best_model_path = './ckpnts_dir/2022-04-06-1700/model_accu_100.000.chkpt'
+        self.linkage_model_path = './ckpnts_dir/2022-04-25-2100/model_accu_100.000_pos_los9.99722976402495e-07.chkpt'
 
         # token settings
         self.pad_idx = 0.0

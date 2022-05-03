@@ -5,7 +5,7 @@ Step 1:
     Just use Ca, N, C, O position vectors, to judge whehter 2 amino-acids could 
     be linked
 
-    A. Construct a Linkage / Affinity Matrix,:
+    A. Construct a Linkage / Affinity Matrix,:                    -* FINISHED *-
         A.1 Use {Ca, N, C, O} these 4 features rather than just Ca-atom position, 
             aiming to improve the final performance
 

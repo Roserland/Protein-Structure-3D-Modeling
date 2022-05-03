@@ -7,6 +7,7 @@
 from cProfile import label
 from functools import total_ordering
 from sklearn import datasets
+from sklearn.utils import shuffle
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
@@ -449,13 +450,27 @@ class UniProtein():
         self.dist_rescaling = dist_rescaling
         self.linkage_gt_square = None
         self.linkage_gt_sets   = None
+        self.rand_index = None
+        self.rand_index_vec = None
+        self.shuffled_square_gt = None
+        self.detected_index_vec = []
 
         self.pad_idx = pad_index
         
         self.load_tracked_amino_acids()
         self.load_gt_amino_acids()
+        if shuffle and len(self.data_array) != len(self.label_data):
+            """
+            [6QP4, 6TPW, 6PGW, 7B1E, 7B1P, 7B1Q, ]
+            """
+            print("Protein-{}'s data_array is replaced by ground_truth_data".format(self.protein_id))
+            self.data_array = self.label_data
+
         self.load_gt_amino_seq_index()
         self.construct_square_gt()
+
+        if shuffle:
+            self.shuffle_square_gt()
     
     def load_tracked_amino_acids(self, padding=False, pad=None):
         if pad == None:
@@ -470,8 +485,8 @@ class UniProtein():
         self.amino_file_list = np.array(amino_file_list)
 
         # TODO: When sorted, store the sorted index
-        if self.shuffle:
-            random.shuffle(amino_file_list)
+        # if self.shuffle:
+        #     random.shuffle(amino_file_list)
 
         # relative coodinates
         for i, amino_file in enumerate(amino_file_list):
@@ -481,6 +496,11 @@ class UniProtein():
         self.amino_types_list = data_array[:, 0]
 
     def load_gt_amino_acids(self, padding=False, pad=None):
+        """
+        NOTE: detected amino-acid nums may not equal to the ground truth amino-acid nums
+              1. Some amino-acids are not detected 
+              2. Some amino-acid are not located by the .pdb files(from experiments) 
+        """
         label_vec = np.load(self.label_file)
 
         self.gt_amino_num = len(label_vec)
@@ -531,12 +551,6 @@ class UniProtein():
             gt[i, i-1] = 1
             gt[i-1, i] = 1
 
-        # for i, item in enumerate(self.index_vec):
-        #     print(i, item, self.existence_array[i], self.existence_array[item - 1])
-        #     if self.existence_array[item - 1] == 0:
-        #         gt[i, i - 1] = 0
-        #         gt[i - 1, i] = 0
-
         for i in range(1, length):
             item_index = self.index_vec[i]
             item_existence = self.existence_array[item_index - 1]
@@ -545,6 +559,24 @@ class UniProtein():
                 gt[i - 1, i] = 0
 
         self.linkage_gt_square = gt
+    
+    def shuffle_square_gt(self):
+        rand_idx = np.arange(len(self.data_array))                # 
+        # assert len(self.data_array) == len(self.index_vec)          # May not true, some not tracked
+        # if len(self.data_array) != len(self.index_vec):
+        #     print("{}: data array length is not equal to index_vec length".format(self.protein_id))
+        #     raise ValueError
+        # rand_idx = np.arange(len(self.index_vec))
+        np.random.shuffle(rand_idx)
+
+        self.rand_idx = rand_idx
+        self.rand_index_vec = self.index_vec[rand_idx]              # index 375 is out of bounds for axis 0 with size 375
+
+        _gt = self.linkage_gt_square[rand_idx].T
+        _gt = _gt[rand_idx].T
+
+        self.shuffled_square_gt = _gt
+
 
     def construct_linkage_set(self):
         linkage_list = []
@@ -594,7 +626,7 @@ class LinkageSet(Dataset):
             return result
     
     def __getitem__(self, index):
-        t_protein = UniProtein(self.pids[index], pad_index=self.pad_idx)
+        t_protein = UniProtein(self.pids[index], pad_index=self.pad_idx, shuffle=self.shuffle)
         index_vec = t_protein.index_vec
         # print("All amino nums in Protein {} is {}".format(self.pids[index], index_vec[-1]))
 
@@ -610,10 +642,14 @@ class LinkageSet(Dataset):
 
         # add shuffling
         if self.shuffle:
-            det_index = np.arange(amino_nums_det)
-            gt_index = np.arange(amino_nums_gt)
-            np.random.shuffle(det_index)
-            np.random.shuffle(gt_index)
+            # det_index = np.arange(amino_nums_det)
+            # gt_index = np.arange(amino_nums_gt)
+            # np.random.shuffle(det_index)
+            # np.random.shuffle(gt_index)
+            shuffled_index_vec = t_protein.rand_index_vec
+            shuffled_index = t_protein.rand_idx
+            amino_data_array = amino_data_array[shuffled_index]
+            linkage_gt = t_protein.shuffled_square_gt
 
         # also can shuffle after padding
         _amino_data_array = self.add_padding(amino_data_array)
@@ -655,8 +691,8 @@ if __name__ =='__main__':
     # print(data[:20])
     # print(data[20:23], data[23:26], data[26:29], data[29:32])
 
-    # generate_output_data()
-    generate_data_index(output_dir='../datas/tracing_data2')
+    # # generate_output_data()
+    # generate_data_index(output_dir='../datas/tracing_data2')
 
 
     # the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
@@ -680,3 +716,49 @@ if __name__ =='__main__':
     #     l2 = labels[1]
     #     print("\nSUM-2: {}".format((l1 == l2).sum()))
     #     break
+
+
+
+    # Test shuffle
+    # protein = UniProtein("6PGQ", shuffle=True)
+    protein = UniProtein("6PGW", shuffle=True)
+    print(protein.gt_amino_num)
+    print("*******************")
+
+    print(protein.index_vec)
+    print("*******************")
+
+    print(protein.rand_index_vec)
+    print("*******************")
+    print(protein.linkage_gt_square)
+    print("*******************")
+    print(protein.shuffled_square_gt)
+
+    data_array = protein.data_array
+    data_arr_gt = protein.label_data
+    origin_gt = protein.linkage_gt_square
+    shuffle_gt = protein.shuffled_square_gt
+    origin_index_vec = protein.index_vec
+    existence_vec = protein.existence_array
+    rand_index_vec = protein.rand_index_vec
+    rand_index = protein.rand_idx
+
+    print("detected nums: {} \t gt nums: {} \t index_vec_len: {} \t rand_idx len: {} \t existence_len: {} \t sum_of_existence: {}".format(
+        len(data_array), len(data_arr_gt), len(origin_index_vec), len(rand_index), len(existence_vec), np.sum(existence_vec)))
+
+    print("Origin sum: {} \t Shuffled Sum: {}".format(np.sum(origin_gt), np.sum(shuffle_gt)))
+
+    # map_dict = dict(zip(protein.rand_index, protein.index_vec))
+    print(rand_index)
+    map_dict = {}
+    for i in range(len(protein.index_vec)):
+         temp = np.where(rand_index == i)[0]
+         map_dict[i] = temp[0]
+    print(map_dict)
+
+    for i in range(0, len(protein.index_vec) - 1):
+        j = i + 1
+        print("Ori: {} \t Shuffled: {}".format(origin_gt[i, j], shuffle_gt[map_dict[i], map_dict[j]]))
+
+
+

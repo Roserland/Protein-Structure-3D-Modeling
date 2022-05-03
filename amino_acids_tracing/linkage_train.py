@@ -15,17 +15,17 @@ import torch.optim as optim
 import numpy as np
 from Config import Config
 
-from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
+from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve, precision_recall_curve
 from sklearn import metrics
 
 
 print("GPU available: {}".format(torch.cuda.device_count()))
-gpu_id = "0, 1"
+gpu_id = "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 print("GPU available: {}".format(torch.cuda.device_count()))
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device_ids = [0, 1]
+device_ids = [1]
 
 
 seq_clf_loss_weight = 1.0
@@ -78,7 +78,7 @@ def cal_performance(pred_linkage, gt_linkage, ignore_index=2, focal_loss=True,
     # precision = (tp) / (tp + fn)
     # recall = (tp) / (tp + fp)
 
-    return loss, tn, fp, fn, tp, total
+    return _pred, _gt, loss, tn, fp, fn, tp, total
 
 
 class BCE_FocalLoss_withLogits(nn.Module):
@@ -136,6 +136,9 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
     total_loss, link_acc, non_linl_acc = 0, 0, 0
     tp_all, fp_all, fn_all, tn_all = 0, 0, 0, 0
 
+    all_pred_scores = []
+    all_gts = []
+
     desc = '  - (Training)   '
     for batch_data in tqdm(training_data, mininterval=2, desc=desc, leave=False):
 
@@ -153,7 +156,7 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
 
         # backward and update parameters
         # loss, link_num, non_link_num, len(gt_linking), len(gt_non_linking)
-        link_loss, tn, fp, fn, tp, total = \
+        _pred, _gt, link_loss, tn, fp, fn, tp, total = \
             cal_performance(pred_linkage, labels, ignore_index=2, focal_loss=True)
 
         loss = link_loss
@@ -167,11 +170,20 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
         optimizer.step_and_update_lr()
 
         # note keeping
+        # all_pred_scores += _pred.cpu().detach().numpy().tolist()
+        # all_gts += _gt.cpu().detach().numpy().tolist()
+        
         total_loss += loss.item()
         tp_all += tp
         tn_all += tn
         fp_all += fp
         fn_all += fn
+    
+    # fpr, tpr, thres = metrics.roc_curve(all_gts, all_pred_scores)
+    # auc_score = metrics.auc(fpr, tpr)
+    # _precision, _recall, thresholds = precision_recall_curve(all_gts, all_pred_scores)
+    # _PR_AUC = metrics.auc(_precision, _recall)
+    # print("        ---> AUC: {}\t PR-AUC: {}".format(auc_score, _PR_AUC))
 
     total = tp_all + tn_all + fp_all +fn_all
     acc = (tp_all + tn_all) / total
@@ -204,7 +216,7 @@ def eval_epoch(linkage_model, valid_data,  device=device, phase="Validation"):
 
             # backward and update parameters
             # loss, link_num, non_link_num, len(gt_linking), len(gt_non_linking)
-            link_loss, tn, fp, fn, tp, total = \
+            _pred, _gt, link_loss, tn, fp, fn, tp, total = \
                 cal_performance(pred_linkage, labels, ignore_index=2, focal_loss=True)
 
             loss = link_loss
@@ -338,9 +350,9 @@ def main():
         cfg.lr_mul, cfg.d_model, cfg.n_warmup_steps)
     
 
-    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', using_gt=False)
-    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False)
-    test_set  = LinkageSet(index_csv='../datas/tracing_data2/test.csv',  using_gt=False)
+    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', using_gt=False, shuffle=False)
+    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False, shuffle=False)
+    test_set  = LinkageSet(index_csv='../datas/tracing_data2/test.csv',  using_gt=False, shuffle=False)
 
     train_loader = DataLoader(train_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids), num_workers=4)
     valid_loader = DataLoader(valid_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids), num_workers=4)
