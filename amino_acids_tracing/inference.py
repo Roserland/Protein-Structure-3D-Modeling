@@ -120,6 +120,7 @@ def linkage_inference(cfg, device):
         labels = batch_data[1].to(torch.float32).cuda(device=device_ids[0])             # batch x seq_len(512) x 13
                                                                                         # Need to add a BOS token
         amino_nums = batch_data[2]
+        
 
         src_mask = get_pad_mask(seq_data_array[:, :, 0], pad_idx=0)                     # get mask
 
@@ -141,6 +142,31 @@ def linkage_inference(cfg, device):
     precision_all = tp_all / (tp_all + fp_all)
     recall_all = tp_all / (tp_all + fn_all)
     return total_loss, tp_all, fn_all, fp_all, tn_all, total, acc, precision_all, recall_all
+
+
+class ProteinLinker():
+    def __init__(self, model,  
+                       max_len=512) -> None:
+        super().__init__()
+
+        self.model = model
+        self.max_len = max_len
+    
+
+    def predict_linkage(self, predicted_amino_acids):
+        detected_nums = len(predicted_amino_acids)
+
+        if detected_nums > self.max_len:
+            """
+            detected amino-acids num is larger than the default nums set by model
+            So, it's necessary to split the amino-acids into several buckets with overlap.
+            Then, construt the whole sets with splitted results
+            """
+            pass
+        else:
+            buckets = [predicted_amino_acids]
+        
+         
 
 
 

@@ -9,7 +9,7 @@ class Config:
         self.output_dir = './output_dir/'
 
         # Training paramters
-        self.bacth_size = 8
+        self.bacth_size = 64
         self.num_epochs = 10000
         self.lr = 0.0001
         self.d_model = 512

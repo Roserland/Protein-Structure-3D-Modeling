@@ -436,7 +436,8 @@ class UniProtein():
                 pad_index=2,
                 fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', 
                 label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
-                shuffle=False, dist_rescaling=True) -> None:
+                shuffle=False, dist_rescaling=True,
+                random_crop=False, crop_bins=10) -> None:
         
         self.protein_id = protein_id
         self.data_dir = os.path.join(fea_src_dir, protein_id)
@@ -455,6 +456,10 @@ class UniProtein():
         self.shuffled_square_gt = None
         self.detected_index_vec = []
 
+        # data argumentation
+        self.random_crop = random_crop
+        self.crop_bins = crop_bins
+
         self.pad_idx = pad_index
         
         self.load_tracked_amino_acids()
@@ -468,6 +473,12 @@ class UniProtein():
 
         self.load_gt_amino_seq_index()
         self.construct_square_gt()
+
+        if self.random_crop:
+            i, block_len= self.linkage_rand_crop()
+            self.linkage_gt_square[:, i:i+block_len] = 0            # TODO: DY- Set to 2? 
+            self.linkage_gt_square[i:i+block_index] = 0
+            self.data_array[i:i+block_len] = 0
 
         if shuffle:
             self.shuffle_square_gt()
@@ -576,6 +587,17 @@ class UniProtein():
         _gt = _gt[rand_idx].T
 
         self.shuffled_square_gt = _gt
+    
+
+    def linkage_rand_crop(self):
+        bins = self.crop_bins
+        linkage_length = len(self.data_array)
+
+        block_len = linkage_length // bins
+        # randomly choose part
+        i = random.randint(0, linkage_length - block_len)
+
+        return i, block_len
 
 
     def construct_linkage_set(self):
@@ -598,7 +620,8 @@ class LinkageSet(Dataset):
                 fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', 
                 label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
                 using_gt = False,
-                shuffle=False, dist_rescaling=True) -> None:
+                shuffle=False, dist_rescaling=True,
+                random_crop=False, crop_bins=10) -> None:
         super().__init__()
 
         self.index_csv = index_csv
@@ -608,7 +631,12 @@ class LinkageSet(Dataset):
         self.max_len = max_len
         self.pad_idx = pad_idx
         self.using_gt = using_gt
+
+        self.random_crop = random_crop
+        self.crop_bins = crop_bins
+
         self.shuffle = shuffle
+
 
     def set_visiable(self, states=False):
         self.pid_visable = states
@@ -626,7 +654,8 @@ class LinkageSet(Dataset):
             return result
     
     def __getitem__(self, index):
-        t_protein = UniProtein(self.pids[index], pad_index=self.pad_idx, shuffle=self.shuffle)
+        t_protein = UniProtein(self.pids[index], pad_index=self.pad_idx, shuffle=self.shuffle,
+                               random_crop=self.random_crop, crop_bins=self.crop_bins)
         index_vec = t_protein.index_vec
         # print("All amino nums in Protein {} is {}".format(self.pids[index], index_vec[-1]))
 

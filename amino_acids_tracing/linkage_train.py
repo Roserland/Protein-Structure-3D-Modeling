@@ -20,12 +20,12 @@ from sklearn import metrics
 
 
 print("GPU available: {}".format(torch.cuda.device_count()))
-gpu_id = "1"
+gpu_id = "0, 1"
 os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 print("GPU available: {}".format(torch.cuda.device_count()))
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device_ids = [1]
+device_ids = [0, 1]
 
 
 seq_clf_loss_weight = 1.0
@@ -350,8 +350,8 @@ def main():
         cfg.lr_mul, cfg.d_model, cfg.n_warmup_steps)
     
 
-    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', using_gt=False, shuffle=False)
-    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False, shuffle=False)
+    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', using_gt=False, shuffle=False, random_crop=True, crop_bins=8)
+    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False, shuffle=False, random_crop=True, crop_bins=8)
     test_set  = LinkageSet(index_csv='../datas/tracing_data2/test.csv',  using_gt=False, shuffle=False)
 
     train_loader = DataLoader(train_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids), num_workers=4)
