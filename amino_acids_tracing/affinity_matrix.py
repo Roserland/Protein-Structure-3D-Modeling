@@ -50,11 +50,12 @@ Any way, the first step, is critical
 
 """
 
+from cv2 import sort
 import numpy as  np
 import os
 import random
 from PIL import Image
-from torch import from_numpy
+from torch import from_numpy, int16
 import matplotlib.pyplot as plt
 
 def ca_dist(ca_pos, rescaling=False):
@@ -83,7 +84,8 @@ class UniProtein():
     def __init__(self, protein_id, max_len=512,
                 fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', 
                 label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
-                shuffle=True, dist_rescaling=True) -> None:
+                sort_tracked=False,
+                shuffle=False, dist_rescaling=True) -> None:
         
         self.protein_id = protein_id
         self.data_dir = os.path.join(fea_src_dir, protein_id)
@@ -92,11 +94,13 @@ class UniProtein():
 
         self.tracked_acid_num = len(os.listdir(self.data_dir))
         # self.gt_acid_num = amino_acids_num
+        self.sort_tracked = sort_tracked
         self.max_len = max_len
         self.shuffle = shuffle
         self.dist_rescaling = dist_rescaling
         self.linkage_gt_square = None
         self.linkage_gt_sets   = None
+        self.tracked_amino_indices = None
         
         self.load_tracked_amino_acids()
         self.load_gt_amino_acids()
@@ -113,16 +117,30 @@ class UniProtein():
         
         amino_file_list = os.listdir(self.data_dir)
 
-        if self.shuffle:
-            random.shuffle(amino_file_list)
+        # if self.sort_tracked:
+        #     amino_file_list.sort()      
+
+        # if self.shuffle:
+        #     random.shuffle(amino_file_list)
 
         # relative coodinates
+        amino_index_list = []
         for i, amino_file in enumerate(amino_file_list):
-            # print(os.path.join(self.data_dir, amino_file))
             data_array[i] = np.load(os.path.join(self.data_dir, amino_file)).reshape(-1)
+            amino_index_list.append(int(amino_file[4:].split('.')[0]))
+        amino_index_list = np.array(amino_index_list)
+        
+        order = np.argsort(amino_index_list)
+        # print("order is : \n", order)
+        # # print(amino_index_list)
+        # print("\nafter sorted index:")
+        # print(amino_index_list[order])
+        if self.sort_tracked:
+            data_array = data_array[order]
         
         self.data_array = data_array
         self.amino_types_list = data_array[:, 0]
+        self.tracked_amino_indices = amino_index_list
 
     def load_gt_amino_acids(self, padding=False, pad=None):
         label_vec = np.load(self.label_file)
@@ -131,10 +149,15 @@ class UniProtein():
         print("Protein: {}\t Tracked Nums: {}\t GT Nums: {}".format(
             self.protein_id, self.tracked_acid_num, self.gt_amino_num))
         self.label_data = label_vec
-
+    
     def load_gt_amino_seq_index(self, ):
         index_vec = np.load(self.label_index_file)
         index_vec = np.sort(index_vec)
+
+        # for some indices is less than 0 
+        # after sorting, the index_vec[0] is the minimum
+        if index_vec[0] < 0:
+            index_vec = index_vec - index_vec[0] + 1
 
         exists = np.zeros(index_vec[-1])
         exists[index_vec - 1] = 1
@@ -375,11 +398,34 @@ if __name__ == "__main__":
     # dist = ca_dist(a)
     # print(dist)
 
-    protein_a = UniProtein(protein_id="6XM9")
-    print(protein_a.index_vec)
-    print(protein_a.existence_array)
+    # protein_a = UniProtein(protein_id="6XM9", sort_tracked=True)
+    # protein_a = UniProtein(protein_id="6PGW", sort_tracked=True)
+    protein_a = UniProtein(protein_id="6PL8", sort_tracked=True)
+    # print(protein_a.index_vec)
+    # print(protein_a.existence_array)
+    print(protein_a.label_data[:5])
+    print("---- division line ---- ")
+    # print(protein_a.tracked_amino_indices)
+    print(protein_a.data_array[:5])
     # protein_a.get_ca_dist()
     # protein_a.get_C_N_dist()
+
+    detected_sample = protein_a.data_array[:5]
+    ground_sample = protein_a.label_data[:5]
+    diff = (detected_sample[:, 1:] - ground_sample[:, 1:])  * 236
+    print("Diff: \n",np.abs(diff))
+
+    the_detected_type = protein_a.label_data[:, 0]
+    the_ground_type = protein_a.label_data[:, 0]
+    print("Unmatched: ", (the_ground_type != the_detected_type).sum())
+
+    print("Refomulated Checking")
+    for i, item in enumerate(["Ca", "N", "C", "O"]):
+        temp_diff_x = detected_sample[:, 1+i] - ground_sample[:, 1+i+2]
+        temp_diff_y = detected_sample[:, 1+i+1] - ground_sample[:, 1+i+1]
+        temp_diff_z = detected_sample[:, 1+i+2] - ground_sample[:, 1+i]
+        dim2D_diff = (temp_diff_x ** 2 + temp_diff_y ** 2 + temp_diff_z ** 2) ** 0.5
+        print("{} distance error: ".format(item), dim2D_diff)
 
     # get_protein_params_from_original_pdb()
 
@@ -417,3 +463,8 @@ if __name__ == "__main__":
     #                        thres_max=2.5,
     #                        phase="C-N")
     # #### End   ----  Plot distribution 
+
+
+
+    ### ---- Check Input: Predicted Relative Coords by Stage-2
+

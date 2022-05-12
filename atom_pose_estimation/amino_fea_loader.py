@@ -178,6 +178,13 @@ def get_amino_type_from_pdb(pdb_file_path):
     return amino_acid
 
 def get_voxel_pos(pdb_pos, mrc_offset):
+    """
+    TODO: Check the order of x, y, z
+    Because the output data from Stage2-Model may be different from the .pdb ordee, which
+    is likely to be [z, y, x] order. 
+    Or NOT.
+    ATTENTION: Check here !!!
+    """
     z = int(pdb_pos[0] - mrc_offset[0]) # * 2
     y = int(pdb_pos[1] - mrc_offset[1]) # * 2
     x = int(pdb_pos[2] - mrc_offset[2]) # * 2
@@ -229,10 +236,10 @@ def generate_output_data(src_dir="/mnt/data/zxy/amino-acid-detection/test_data/p
         print(output_dir)
         # prepare data for a protein
         curr_dir = os.path.join(src_dir, p_id)
-        pdb_files = os.listdir(curr_dir)
+        pdb_files = os.listdir(curr_dir)                    # TODO: 
         index_list = []
         array_list = []
-        for pdb_name in os.listdir(curr_dir):
+        for pdb_name in pdb_files:
             index_list.append(int(pdb_name.split('.')[0]))
             amino_type= get_amino_type_from_pdb(os.path.join(curr_dir, pdb_name))
             ca, n, c, o = get_atoms_pos(os.path.join(curr_dir, pdb_name))

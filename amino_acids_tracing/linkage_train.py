@@ -1,5 +1,6 @@
 import argparse
-import os, time, math
+from asyncio.log import logger
+import os, time, datetime, math, random
 from turtle import forward
 
 from numpy import gradient
@@ -14,6 +15,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from Config import Config
+import argparse
 
 from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve, precision_recall_curve
 from sklearn import metrics
@@ -31,12 +33,30 @@ device_ids = [0, 1]
 seq_clf_loss_weight = 1.0
 seq_pos_loss_weight = 1.0
 
-cfg = Config()
+# cfg = Config()
+
+parser = argparse.ArgumentParser(description="Amino-acids Affinity Training")
+parser.add_argument("--lr", type=float, default=0.0001)
+parser.add_argument("--n_warmup_epochs", type=int, default=2000)
+parser.add_argument("--batch_size", type=int, default=16)
+parser.add_argument("--focal_alpha", type=float, default=0.5)
+parser.add_argument("--focal_gamma", type=float, default=2)
+args = parser.parse_args()
+
+# python linkage_train.py --n_warmup_epochs=2000 --batch_size=16 --focal_gamma=1.0
+
 
 # TODO: 1. BCE loss with FocalLoss
 #       2. Run the training process 
 #       3. 
 
+cfg = Config()
+cfg.lr = args.lr
+cfg.lr_mul = args.lr
+cfg.n_warmup_steps = args.n_warmup_epochs
+cfg.bacth_size = args.batch_size
+cfg.alpha = args.focal_alpha
+cfg.gamma = args.focal_gamma
 
 
 def cal_performance(pred_linkage, gt_linkage, ignore_index=2, focal_loss=True, 
@@ -56,7 +76,7 @@ def cal_performance(pred_linkage, gt_linkage, ignore_index=2, focal_loss=True,
     # print("Original linkages: {}".format(len(_pred)))
     # print("Collected linkages: {}".format(len(_gt)))
 
-    focal_bce_loss = BCE_FocalLoss_withLogits(gamma=2, alpha=0.5, reduction='mean')
+    focal_bce_loss = BCE_FocalLoss_withLogits(gamma=cfg.gamma, alpha=cfg.alpha, reduction='mean')
     loss = focal_bce_loss(_pred, _gt)
     
     # pred_linking = pred_linkage[link_mask].view(-1)
@@ -136,19 +156,23 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
     total_loss, link_acc, non_linl_acc = 0, 0, 0
     tp_all, fp_all, fn_all, tn_all = 0, 0, 0, 0
 
-    all_pred_scores = []
-    all_gts = []
+    all_pred_scores = np.array([])
+    all_gts = np.array([])
 
     desc = '  - (Training)   '
+    print_grad = True
     for batch_data in tqdm(training_data, mininterval=2, desc=desc, leave=False):
 
         # prepare data
         seq_data_array = batch_data[0].to(torch.float32).cuda(device=device_ids[0])     #.to(device)
         labels = batch_data[1].to(torch.float32).cuda(device=device_ids[0])             # batch x seq_len(512) x 13
                                                                                         # Need to add a BOS token
+        # print(seq_data_array[0].shape)
+        # print(seq_data_array[0])
         amino_nums = batch_data[2]
 
         src_mask = get_pad_mask(seq_data_array[:, :, 0], pad_idx=0)                     # get mask
+        # print("mask nums: ", torch.sum(src_mask))
 
         # forward
         optimizer.zero_grad()
@@ -163,14 +187,17 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
         loss.backward()
 
         # check gradient ---- print
-        # for name, params in linkage_model.named_parameters():
-        #     print("\n--> name: ", name)
-        #     print("    grad_value mean: {}\t std: {}".format(torch.mean(params.grad), torch.std(params.grad)))
+        if print_grad:
+            print_grad = False
+            for name, params in linkage_model.named_parameters():
+                print("\n--> name: ", name)
+                print("    grad_value mean: {}\t std: {}".format(torch.mean(params.grad), torch.std(params.grad)))
         
         optimizer.step_and_update_lr()
 
         # note keeping
-        # all_pred_scores += _pred.cpu().detach().numpy().tolist()
+        all_pred_scores = np.concatenate((all_pred_scores, _pred.cpu().detach().numpy()))
+        all_gts = np.concatenate((all_gts, _gt.cpu().detach().numpy()))
         # all_gts += _gt.cpu().detach().numpy().tolist()
         
         total_loss += loss.item()
@@ -179,11 +206,12 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
         fp_all += fp
         fn_all += fn
     
-    # fpr, tpr, thres = metrics.roc_curve(all_gts, all_pred_scores)
-    # auc_score = metrics.auc(fpr, tpr)
-    # _precision, _recall, thresholds = precision_recall_curve(all_gts, all_pred_scores)
+    fpr, tpr, thres = metrics.roc_curve(all_gts, all_pred_scores)
+    auc_score = metrics.auc(fpr, tpr)
+    _precision, _recall, thresholds = precision_recall_curve(all_gts, all_pred_scores)
     # _PR_AUC = metrics.auc(_precision, _recall)
-    # print("        ---> AUC: {}\t PR-AUC: {}".format(auc_score, _PR_AUC))
+    print("   Train ---> AUC: {}".format(auc_score))
+    # print("   Train ---> AUC: {}\t PR-AUC: {}".format(auc_score, _PR_AUC))
 
     total = tp_all + tn_all + fp_all +fn_all
     acc = (tp_all + tn_all) / total
@@ -198,6 +226,9 @@ def eval_epoch(linkage_model, valid_data,  device=device, phase="Validation"):
     linkage_model.eval()
     total_loss, link_acc, non_linl_acc = 0, 0, 0
     tp_all, fp_all, fn_all, tn_all = 0, 0, 0, 0
+
+    all_pred_scores = np.array([])
+    all_gts = np.array([])
 
     desc = '  - (Validing)   '
     with torch.no_grad():
@@ -228,6 +259,16 @@ def eval_epoch(linkage_model, valid_data,  device=device, phase="Validation"):
             fp_all += fp
             fn_all += fn
 
+            all_pred_scores = np.concatenate((all_pred_scores, _pred.cpu().detach().numpy()))
+            all_gts = np.concatenate((all_gts, _gt.cpu().detach().numpy()))
+
+        fpr, tpr, thres = metrics.roc_curve(all_gts, all_pred_scores)
+        auc_score = metrics.auc(fpr, tpr)
+        _precision, _recall, thresholds = precision_recall_curve(all_gts, all_pred_scores)
+        # _PR_AUC = metrics.auc(_precision, _recall)
+        print("   Valid ---> AUC: {}".format(auc_score))
+        # print("   Valid ---> AUC: {}\t PR-AUC: {}".format(auc_score, _PR_AUC))
+
         total = tp_all + tn_all + fp_all +fn_all
         acc = (tp_all + tn_all) / total
         precision_all = tp_all / (tp_all + fp_all)
@@ -242,8 +283,10 @@ def train(model, training_data, validation_data, test_data, optimizer, cfg, smoo
         from torch.utils.tensorboard import SummaryWriter
         tb_writer = SummaryWriter(log_dir=os.path.join(cfg.output_dir, 'tensorboard'))
     
-    log_train_file = os.path.join(cfg.output_dir, 'train.log')
-    log_valid_file = os.path.join(cfg.output_dir, 'valid.log')
+    time_str = time.strftime("%Y-%m-%d_%H_%M", time.localtime())
+    # os.makedirs(os.path.join(cfg.logs_dir, time_str), True)
+    log_train_file = os.path.join(cfg.logs_dir, time_str + '_train.log')
+    log_valid_file = os.path.join(cfg.logs_dir, time_str + '_valid.log')
 
     print('[Info] Training performance will be written to file: {} and {}'.format(
         log_train_file, log_valid_file))
@@ -262,7 +305,7 @@ def train(model, training_data, validation_data, test_data, optimizer, cfg, smoo
                   elapse=(time.time()-start_time)/60, lr=lr))
     
     valid_losses = []
-    for epoch_i in range(cfg.num_epochs):
+    for epoch_i in range(cfg.num_epochs):  
         print('[ Epoch', epoch_i, ']')
 
         start = time.time()
@@ -310,36 +353,42 @@ def train(model, training_data, validation_data, test_data, optimizer, cfg, smoo
             tb_writer.add_scalars('accuracy', {'train': train_acc*100, 'val': train_acc*100}, epoch_i)
             tb_writer.add_scalar('learning_rate', lr, epoch_i)
         
-        # if (epoch_i % 5 == 0):
-        #     start = time.time()
-        #     test_loss, test_pos_loss, test_seq_loss, test_accu, test_word_total = eval_epoch(model, test_data, device, phase="Testing")
-        #     # test_seq_ppl = math.exp(min(test_seq_loss, 100))
-        #     # test_pos_ppl = math.exp(min(test_pos_loss, 100))
-        #     test_seq_ppl = min(test_seq_loss, 100)
-        #     test_pos_ppl = min(test_pos_loss, 100)
-        #     print_performances('Testing', test_seq_ppl, test_accu, test_pos_ppl, test_word_total, start, lr)
+        if ((epoch_i+1) % 5 == 0):
+            start = time.time()
+            test_valid(model, protein_id='6Q29')
 
-def test_valid(i):
-    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False)
-    valid_loader = DataLoader(valid_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids))
 
-    gt_non_pad_nums = 0
-    for batch_data in tqdm(valid_loader, mininterval=2, desc="test_valid", leave=False):
-         # prepare data
-        seq_data_array = batch_data[0].to(torch.float32).cuda(device=device_ids[0])     #.to(device)
-        labels = batch_data[1].to(torch.float32).cuda(device=device_ids[0])             # batch x seq_len(512) x 13
+def test_valid(model, protein_id, max_len=512, pad=0, shuffle=False):
+    model.eval()
+    fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/'
+    amino_acids_dir = os.path.join(fea_src_dir, protein_id)
+    amino_file_list = os.listdir(amino_acids_dir)
 
-        amino_nums = batch_data[2]
-        print(amino_nums)
+    if shuffle:
+        random.shuffle(amino_file_list)        
 
-        non_pad_mask = labels.ne(2)
-        non_pad_gt = labels[non_pad_mask]
-        gt_non_pad_nums += len(non_pad_gt.contiguous().view(-1))
-    print("In {} test, the non-pad-part nums are: {}".format(i, gt_non_pad_nums))
+    if len(amino_file_list) > max_len:
+        print("The detected amino acids num is larger than {}. Split the set or change the 'max_len' ".format(max_len))
+
+    data_array = np.zeros((max_len, 13)) + pad
+    amino_index_list = []
+    for i, amino_file in enumerate(amino_file_list):
+        data_array[i] = np.load(os.path.join(amino_acids_dir, amino_file)).reshape(-1)
+        amino_index_list.append(int(amino_file[:-4].split('_')[1]))
+
+    input_data = torch.from_numpy(data_array).to(torch.float32).unsqueeze(0) # .cuda(device=device_ids[0])
+    # input_data.cuda(device=self.device_ids[0])
+
+    src_mask = get_pad_mask(input_data[:, :, 0], pad_idx=0)                     # get mask
+    print(amino_index_list)
+    with torch.no_grad():
+        pred_linkage = model(input_data, src_mask)
+        sigmoid_pred = torch.sigmoid(pred_linkage)
+    print(sigmoid_pred)
+    return sigmoid_pred
 
 
 def main():
-    cfg = Config()
     # transformer = Transformer(22, 22).to(device)
     linkage_model = LinkageFormer(n_layers=2)
     linkage_model = torch.nn.DataParallel(linkage_model, device_ids=device_ids)
@@ -350,8 +399,8 @@ def main():
         cfg.lr_mul, cfg.d_model, cfg.n_warmup_steps)
     
 
-    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', using_gt=False, shuffle=False, random_crop=True, crop_bins=8)
-    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False, shuffle=False, random_crop=True, crop_bins=8)
+    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', using_gt=False, shuffle=True, random_crop=False, crop_bins=8)
+    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False, shuffle=False, random_crop=False, crop_bins=8)
     test_set  = LinkageSet(index_csv='../datas/tracing_data2/test.csv',  using_gt=False, shuffle=False)
 
     train_loader = DataLoader(train_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids), num_workers=4)

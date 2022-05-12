@@ -3,7 +3,7 @@
             2. Generate type-seq and correspondingly positions seperately
 
 """
-import os, tqdm
+import os, tqdm, random
 import torch
 import torch.nn as nn
 import torch.functional as F
@@ -145,34 +145,83 @@ def linkage_inference(cfg, device):
 
 
 class ProteinLinker():
-    def __init__(self, model,  
-                       max_len=512) -> None:
+    def __init__(self, model, 
+                       fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', 
+                       label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
+                       max_len=512,
+                       pad_index=2, ) -> None:
         super().__init__()
 
         self.model = model
+        self.fea_src_dir = fea_src_dir
+        self.label_src_dir = label_src_dir
         self.max_len = max_len
+        self.device_ids = [0, 1]
+
+        self.pad_index=pad_index
+
+        self.amino_data_array = None
     
 
-    def predict_linkage(self, predicted_amino_acids):
-        detected_nums = len(predicted_amino_acids)
+    def load_predicted_aminos(self, protein_id, pad=0, max_len=512, shuffle=False):
+        amino_acids_dir = os.path.join(self.fea_src_dir, protein_id)
+        amino_file_list = os.listdir(amino_acids_dir)
 
-        if detected_nums > self.max_len:
-            """
-            detected amino-acids num is larger than the default nums set by model
-            So, it's necessary to split the amino-acids into several buckets with overlap.
-            Then, construt the whole sets with splitted results
-            """
-            pass
-        else:
-            buckets = [predicted_amino_acids]
+        random.shuffle(amino_file_list)        
+
+        if len(amino_file_list) > max_len:
+            print("The detected amino acids num is larger than {}. Split the set or change the 'max_len' ".format(max_len))
+
+        data_array = np.zeros((max_len, 13)) + pad
+        amino_index_list = []
+        for i, amino_file in enumerate(amino_file_list):
+            data_array[i] = np.load(os.path.join(amino_acids_dir, amino_file)).reshape(-1)
+            amino_index_list.append(int(amino_file[:-4].split('_')[1]))
         
-         
+        self.amino_data_array = data_array
+        self.amino_index_list = amino_index_list
+    
+
+    def predict_linkage(self, max_len=512):
+        """
+            predicted_amino_acids: 2D array -> [amino-1, amino-2, amino-3....]
+                                                amino-1: a 13D vector
+            
+        """
+        # detected_nums = len(predicted_amino_acids)
+
+        # if detected_nums > self.max_len:
+        #     """
+        #     detected amino-acids num is larger than the default nums set by model
+        #     So, it's necessary to split the amino-acids into several buckets with overlap.
+        #     Then, construt the whole sets with splitted results
+        #     """
+        #     pass
+        # else:
+        #     # buckets = [predicted_amino_acids]
+        #     pass
+            
+        input_data = np.zeros((max_len, 13))
+        length, fea_dim = self.amino_data_array.shape
+        input_data[:length] = self.amino_data_array
+
+        input_data = torch.from_numpy(input_data).to(torch.float32).unsqueeze(0) # .cuda(device=device_ids[0])
+        # input_data.cuda(device=self.device_ids[0])
+
+        src_mask = get_pad_mask(input_data[:, :, 0], pad_idx=0)                     # get mask
+
+        pred_linkage = self.model(input_data, src_mask)
+        sigmoid_pred = torch.sigmoid(pred_linkage)
+
+        return sigmoid_pred
+
+
+    def reload_model(model_path):
+        pass
 
 
 
-
-
-
+        
 def function_test():
     a = torch.tensor([[1, 2, 3], [4, 5, 6]]).float()
     b = torch.tensor([[4, 1, 3], [8, 3, 1]]).float()
@@ -193,13 +242,44 @@ def function_test():
 
 
 
-if __name__ == '__main__':
-    # function_test()
-    print("GPU available: {}".format(torch.cuda.device_count()))
-    gpu_id = "0"
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    print("GPU available: {}".format(torch.cuda.device_count()))
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    device_ids = [0, 1]
-    _inference_test(cfg, device)
+if __name__ == '__main__':
+    # # function_test()
+    # print("GPU available: {}".format(torch.cuda.device_count()))
+    # gpu_id = "0"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    # print("GPU available: {}".format(torch.cuda.device_count()))
+
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # device_ids = [0, 1]
+    # _inference_test(cfg, device)
+
+
+    linkage_model = LinkageFormer(n_layers=2)
+    linkage_model = nn.DataParallel(linkage_model)
+
+    ckpnt = torch.load(cfg.linkage_model_path)
+    _state_dict = ckpnt['model']
+    linkage_model.load_state_dict(_state_dict)
+
+    linkage_model.cuda(0)
+    
+    # inference
+    print("\nPrediction Linkage...")
+    linkage_predictor = ProteinLinker(linkage_model)
+    
+    linkage_predictor.load_predicted_aminos(protein_id="6VV0")
+    link_res = linkage_predictor.predict_linkage()
+
+    print(linkage_predictor.amino_index_list)
+    the_len = len(linkage_predictor.amino_index_list)
+    print("Detected nums: {}".format(the_len))
+    print(link_res.shape)
+    print(link_res)
+    
+    print("Checking")
+    for i in range(1, the_len):
+        print(link_res[0][i][i-1])
+    print("\nThe padding part")
+    for i in range(the_len, 512):
+        print(link_res[0][i][i-1])

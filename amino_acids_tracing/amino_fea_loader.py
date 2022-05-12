@@ -493,15 +493,22 @@ class UniProtein():
             data_array = np.zeros((self.tracked_acid_num, 13))
         
         amino_file_list = os.listdir(self.data_dir)
-        self.amino_file_list = np.array(amino_file_list)
+        self.amino_file_list = np.array(amino_file_list)                    # sort ?  In context with PDB order ? 
 
         # TODO: When sorted, store the sorted index
         # if self.shuffle:
         #     random.shuffle(amino_file_list)
 
         # relative coodinates
+        amino_index_list = []
         for i, amino_file in enumerate(amino_file_list):
             data_array[i] = np.load(os.path.join(self.data_dir, amino_file)).reshape(-1)
+            amino_index_list.append(int(amino_file[4:].split('.')[0]))
+        amino_index_list = np.array(amino_index_list)
+
+        order = np.argsort(amino_index_list)
+        # NOTE: It must be sorted if shuffle the data                       # DY: ATTENTION
+        data_array = data_array[order]
         
         self.data_array = data_array
         self.amino_types_list = data_array[:, 0]
@@ -521,7 +528,7 @@ class UniProtein():
 
     def load_gt_amino_seq_index(self, ):
         index_vec = np.load(self.label_index_file)
-        index_vec = np.sort(index_vec)
+        index_vec = np.sort(index_vec)                              # DY: Is sorted by the order like [1, 2, 3, 4, 5...] ?
 
         # for some indices is less than 0 
         # after sorting, the index_vec[0] is the minimum
@@ -586,6 +593,8 @@ class UniProtein():
         _gt = self.linkage_gt_square[rand_idx].T
         _gt = _gt[rand_idx].T
 
+        self.data_array = self.data_array[rand_idx]
+        self.label_data = self.label_data[rand_idx]
         self.shuffled_square_gt = _gt
     
 
@@ -641,15 +650,19 @@ class LinkageSet(Dataset):
     def set_visiable(self, states=False):
         self.pid_visable = states
     
-    def add_padding(self, data, dims=1):
+    def add_padding(self, data, _pad_idx=None, dims=1):
         _len, dim = data.shape
+
+        if _pad_idx == None:
+            _pad_idx = self.pad_idx
+
         assert _len < self.max_len
         if dims == 1:
-            result = np.zeros((self.max_len, dim)) + self.pad_idx
+            result = np.zeros((self.max_len, dim)) + _pad_idx
             result[:_len] = data
             return result
         elif dims == 2:
-            result = np.zeros((self.max_len, self.max_len)) + self.pad_idx
+            result = np.zeros((self.max_len, self.max_len)) + _pad_idx
             result[:_len, :dim] = data
             return result
     
@@ -681,8 +694,8 @@ class LinkageSet(Dataset):
             linkage_gt = t_protein.shuffled_square_gt
 
         # also can shuffle after padding
-        _amino_data_array = self.add_padding(amino_data_array)
-        _amino_data_gt = self.add_padding(amino_data_gt)
+        _amino_data_array = self.add_padding(amino_data_array, _pad_idx=0)
+        _amino_data_gt = self.add_padding(amino_data_gt, _pad_idx=0)
         _linkage_gt = self.add_padding(linkage_gt, dims=2)
 
         if self.using_gt:
