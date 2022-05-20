@@ -1,11 +1,13 @@
 import argparse
-from asyncio.log import logger
 import os, time, datetime, math, random
 from turtle import forward
+from wsgiref.simple_server import demo_app
+from cv2 import log
 
 from numpy import gradient
-from TraceFormer import Transformer, get_pad_mask, get_subsequent_mask, ScheduledOptim, Encoder, Decoder, LinkageFormer
-from amino_fea_loader import AminoFeatureDataset, LinkageSet
+from TraceFormer import ScheduledOptim
+from my_datasets import MLP_Dataset
+from simple_models import MLP
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from torch.autograd import gradcheck
 from tqdm import tqdm
@@ -29,76 +31,69 @@ print("GPU available: {}".format(torch.cuda.device_count()))
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device_ids = [0, 1]
 
-
-seq_clf_loss_weight = 1.0
-seq_pos_loss_weight = 1.0
-
-# cfg = Config()
-
+cfg = Config()
 parser = argparse.ArgumentParser(description="Amino-acids Affinity Training")
 parser.add_argument("--lr", type=float, default=0.0001)
+parser.add_argument("--lr_mul", type=float, default=0.0001)
 parser.add_argument("--n_warmup_epochs", type=int, default=2000)
 parser.add_argument("--batch_size", type=int, default=16)
 parser.add_argument("--focal_alpha", type=float, default=0.5)
 parser.add_argument("--focal_gamma", type=float, default=2)
+parser.add_argument("--using_gt", action="store_true", default=False)
+parser.add_argument("--warm_up", action="store_true", default=False)
 args = parser.parse_args()
-
-# python linkage_train.py --n_warmup_epochs=2000 --batch_size=16 --focal_gamma=1.0
-
-
-# TODO: 1. BCE loss with FocalLoss
-#       2. Run the training process 
-#       3. 
 
 cfg = Config()
 cfg.lr = args.lr
-cfg.lr_mul = args.lr
+cfg.lr_mul = args.lr_mul
 cfg.n_warmup_steps = args.n_warmup_epochs
 cfg.bacth_size = args.batch_size
 cfg.alpha = args.focal_alpha
 cfg.gamma = args.focal_gamma
+cfg.using_gt = args.using_gt
+cfg.warmup = args.warm_up
 
-
-def cal_performance(pred_linkage, gt_linkage, ignore_index=2, focal_loss=True, 
+def cal_performance(pred_linkage, gt_linkage, ignore_index=-1, focal_loss=True, 
                     seq_weight=1.0, pos_weight=1.0,  
                     smoothing=False):
-    bs, seq_len, dim = pred_linkage.shape
-    # link_mask = gt_linkage.eq(1)
-    # non_link_mask = gt_linkage.eq(0)
+    seq_len, dim = pred_linkage.shape
     non_pad_mask = gt_linkage.ne(ignore_index)
 
-    # print("No equal to 2 sum: {}".format(non_pad_mask.sum()))
-    # from collections import Counter
-    # print("\n {} \t {}".format(gt_linkage.shape, pred_linkage.shape))
-    # print("GT counter: {}".format(Counter(gt_linkage.reshape(-1).cpu().numpy())))
     _pred = pred_linkage[non_pad_mask].contiguous().view(-1)
     _gt = gt_linkage[non_pad_mask].contiguous().view(-1)
-    # print("Original linkages: {}".format(len(_pred)))
-    # print("Collected linkages: {}".format(len(_gt)))
+
+    # print("pred len: {}, GT len: {}".format(_pred.shape, _gt.shape))
 
     focal_bce_loss = BCE_FocalLoss_withLogits(gamma=cfg.gamma, alpha=cfg.alpha, reduction='mean')
     loss = focal_bce_loss(_pred, _gt)
-    
-    # pred_linking = pred_linkage[link_mask].view(-1)
-    # pred_non_linking = pred_linkage[non_link_mask].view(-1)
-    # gt_linking = gt_linkage[link_mask].view(-1)
-    # gt_non_linking = gt_linkage[non_link_mask].view(-1)
 
     pred_linking = (torch.sigmoid(_pred) > 0.5).long()
-    # pred_non_linking = (torch.sigmoid(pred_non_linking) < 0.5).int()
-
-    # link_num = (pred_linking == gt_linking).sum()
-    # non_link_num = (pred_non_linking == gt_non_linking).sum()
     tn, fp, fn, tp = confusion_matrix(_gt.cpu(), pred_linking.cpu()).ravel()
     total = tn + fp + fn + tp
 
-    # fpr, tpr, thresholds = roc_curve(_gt.cpu(), pred_linking.cpu(), pos_label=1)
-    # auc_score = metrics.auc(fpr, tpr)
-    # acc = (tp + tn) / total
-    # precision = (tp) / (tp + fn)
-    # recall = (tp) / (tp + fp)
-
     return _pred, _gt, loss, tn, fp, fn, tp, total
+
+
+def multiclass_cal_performance(pred_linkage, gt_linkage, ignore_index=-1, focal_loss=True, 
+                                seq_weight=1.0, pos_weight=1.0,  
+                                smoothing=False):
+    seq_len, dim = pred_linkage.shape
+    non_pad_mask = gt_linkage.ne(ignore_index)
+
+    _pred = pred_linkage[non_pad_mask].contiguous().view(-1)
+    _gt = gt_linkage[non_pad_mask].contiguous().view(-1)
+
+    # print("pred len: {}, GT len: {}".format(_pred.shape, _gt.shape))
+
+    focal_loss = MultiClass_FocalLoss(gamma=cfg.gamma, alpha=cfg.alpha, reduction='mean')
+    loss = focal_loss(_pred, _gt)
+
+    pred_linking = F.log_softmax(pred_linking).argmax(dim=1)
+    conf_max = confusion_matrix(_gt.cpu(), pred_linking.cpu())
+
+    # total = tn + fp + fn + tp
+
+    return _pred, _gt, loss, pred_linking
 
 
 class BCE_FocalLoss_withLogits(nn.Module):
@@ -109,20 +104,6 @@ class BCE_FocalLoss_withLogits(nn.Module):
         self.alpha = alpha
         self.reduction = reduction
 
-    # def forward(self, logits, target):
-    #     logits = torch.sigmoid(logits)
-    #     alpha = self.alpha
-    #     gamma = self.gamma
-    #     loss = (-1 * alpha * (1 - logits) ** gamma) * target * torch.log(logits) - \
-    #             (1 - alpha) * logits ** gamma * (1 - target) * torch.log(1 - logits)
-    #     if self.reduciton == 'mean':
-    #         loss = loss.mean()
-    #     elif self.reduciton == 'sum':
-    #         loss = loss.sum()
-    #     else:
-    #         raise ValueError
-    #     return loss 
-    
     def forward(self, logits, label):
         '''
         Usage is same as nn.BCEWithLogits:
@@ -148,11 +129,55 @@ class BCE_FocalLoss_withLogits(nn.Module):
             loss = loss.sum()
         return loss
 
+class MultiClass_FocalLoss(nn.Module):
+    def __init__(self, gamma=2, alpha=0.5, size_average=True) -> None:
+        super(MultiClass_FocalLoss).__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.size_average = size_average
+        self.elipson = 0.000001
+    
+    def forward(self, logits, labels):
+        """
+        calculate loss
+        logits: batch_size * labels_length * seq_length
+        labels: batch_size * seq_length
+        """
+        if labels.dim() > 2:
+            labels = labels.contiguous().view(labels.size(0), labels.size(1), -1)   # N x label length
+            labels = labels.transpose(1, 2)
+            labels = labels.contiguous().view(-1, labels.size(2)).squeeze()
+        if logits.dim() > 3:
+            logits = logits.contiguous().view(logits.size(0), logits.size(1), logits.size(2), -1)
+            logits = logits.transpose(2, 3)
+            logits = logits.contiguous().view(-1, logits.size(1), logits.size(3)).squeeze()
 
-def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing):
+        assert logits.size(0) == labels.size(0)
+        assert logits.size(2) == labels.size(1)
+
+        batch_size = logits.size(0)
+        labels_length = logits.size(1)
+        seq_length = logits.size(2)
+
+        # transpose labels into labels one-hot
+        new_label = labels.unsequeeze(1)
+        label_onehot = torch.zeros([batch_size, labels_length, seq_length]).scatter_(1, new_label, 1)
+
+        # cal log
+        log_p = F.log_softmax(logits)
+        pt = label_onehot * log_p
+        sub_pt = 1 - pt
+        focal_loss = -self.alpha * (sub_pt) ** self.gamma * log_p
+        if self.size_average:
+            return focal_loss.mean()
+        else:
+            return focal_loss.sum()
+
+
+def train_epoch(mlp_model, training_data, optimizer, opt, device, smoothing):
     ''' Epoch operation in training phase'''
 
-    linkage_model.train()
+    mlp_model.train()
     total_loss, link_acc, non_linl_acc = 0, 0, 0
     tp_all, fp_all, fn_all, tn_all = 0, 0, 0, 0
 
@@ -164,24 +189,23 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
     for batch_data in tqdm(training_data, mininterval=2, desc=desc, leave=False):
 
         # prepare data
-        seq_data_array = batch_data[0].to(torch.float32).cuda(device=device_ids[0])     #.to(device)
+        seq_data_array = batch_data[0].to(torch.float32).cuda(device=device_ids[0])     # batch_size * 4096 * 24
         labels = batch_data[1].to(torch.float32).cuda(device=device_ids[0])             # batch x seq_len(512) x 13
                                                                                         # Need to add a BOS token
-        # print(seq_data_array[0].shape)
-        # print(seq_data_array[0])
-        amino_nums = batch_data[2]
+        seq_data_array = torch.cat((seq_data_array[:, :, :3], seq_data_array[:, :, 12:15]), dim=2)
+        seq_data_array = seq_data_array.reshape(-1, 6)
 
-        src_mask = get_pad_mask(seq_data_array[:, :, 0], pad_idx=0)                     # get mask
-        # print("mask nums: ", torch.sum(src_mask))
+        # seq_data_array = seq_data_array.reshape(-1, 24)
+        labels = labels.reshape(-1)
 
         # forward
         optimizer.zero_grad()
-        pred_linkage = linkage_model(seq_data_array, src_mask)
+        pred_linkage = mlp_model(seq_data_array)
 
         # backward and update parameters
         # loss, link_num, non_link_num, len(gt_linking), len(gt_non_linking)
         _pred, _gt, link_loss, tn, fp, fn, tp, total = \
-            cal_performance(pred_linkage, labels, ignore_index=2, focal_loss=True)
+            cal_performance(pred_linkage, labels, ignore_index=-1, focal_loss=True)
 
         loss = link_loss
         loss.backward()
@@ -189,7 +213,7 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
         # check gradient ---- print
         if print_grad:
             print_grad = False
-            for name, params in linkage_model.named_parameters():
+            for name, params in mlp_model.named_parameters():
                 print("\n--> name: ", name)
                 print("    grad_value mean: {}\t std: {}".format(torch.mean(params.grad), torch.std(params.grad)))
         
@@ -220,10 +244,11 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
     return total_loss, tp_all, fn_all, fp_all, tn_all, total, acc, precision_all, recall_all, auc_score
 
 
-def eval_epoch(linkage_model, valid_data,  device=device, phase="Validation"):
+
+def eval_epoch(mlp_model, valid_data,  device=device, phase="Validation"):
     ''' Epoch operation in training phase'''
 
-    linkage_model.eval()
+    mlp_model.eval()
     total_loss, link_acc, non_linl_acc = 0, 0, 0
     tp_all, fp_all, fn_all, tn_all = 0, 0, 0, 0
 
@@ -237,18 +262,20 @@ def eval_epoch(linkage_model, valid_data,  device=device, phase="Validation"):
             # prepare data
             seq_data_array = batch_data[0].to(torch.float32).cuda(device=device_ids[0])     #.to(device)
             labels = batch_data[1].to(torch.float32).cuda(device=device_ids[0])             # batch x seq_len(512) x 13
-                                                                                        # Need to add a BOS token
-            amino_nums = batch_data[2]
 
-            src_mask = get_pad_mask(seq_data_array[:, :, 0], pad_idx=0)                     # get mask
+            seq_data_array = torch.cat((seq_data_array[:, :, :3], seq_data_array[:, :, 12:15]), dim=2)
+            seq_data_array = seq_data_array.reshape(-1, 6)
+            
+            # seq_data_array = seq_data_array.reshape(-1, 24)
+            labels = labels.reshape(-1)
 
             # forward
-            pred_linkage = linkage_model(seq_data_array, src_mask)
+            pred_linkage = mlp_model(seq_data_array)
 
             # backward and update parameters
             # loss, link_num, non_link_num, len(gt_linking), len(gt_non_linking)
             _pred, _gt, link_loss, tn, fp, fn, tp, total = \
-                cal_performance(pred_linkage, labels, ignore_index=2, focal_loss=True)
+                cal_performance(pred_linkage, labels, ignore_index=-1, focal_loss=True)
 
             loss = link_loss
 
@@ -353,9 +380,9 @@ def train(model, training_data, validation_data, test_data, optimizer, cfg, smoo
             tb_writer.add_scalars('accuracy', {'train': train_acc*100, 'val': train_acc*100}, epoch_i)
             tb_writer.add_scalar('learning_rate', lr, epoch_i)
         
-        if ((epoch_i+1) % 5 == 0):
-            start = time.time()
-            test_valid(model, protein_id='6Q29')
+        # if ((epoch_i+1) % 5 == 1):
+        #     start = time.time()
+        #     test_valid(model, protein_id='6Q29')
 
 
 def test_valid(model, protein_id, max_len=512, pad=0, shuffle=False):
@@ -377,35 +404,62 @@ def test_valid(model, protein_id, max_len=512, pad=0, shuffle=False):
         amino_index_list.append(int(amino_file[:-4].split('_')[1]))
 
     input_data = torch.from_numpy(data_array).to(torch.float32).unsqueeze(0) # .cuda(device=device_ids[0])
-    # input_data.cuda(device=self.device_ids[0])
+    input_data = input_data.reshape(-1, 24)
+    # input_ata.cuda(device=self.device_ids[0])
 
-    src_mask = get_pad_mask(input_data[:, :, 0], pad_idx=0)                     # get mask
     print(amino_index_list)
     with torch.no_grad():
-        pred_linkage = model(input_data, src_mask)
+        pred_linkage = model(input_data)[0]
+        print("Original Output of the Model is :\n", pred_linkage)
         sigmoid_pred = torch.sigmoid(pred_linkage)
     print(sigmoid_pred)
 
     order = np.argsort(amino_index_list)
-    pred_res = sigmoid_pred[:len(order), :len(order)]
-    binart_res = (sigmoid_pred >= 0.5)
+    print(order.shape)
+    print("Order:\n", order)
+    pred_res = sigmoid_pred[:len(order), :len(order)].cpu().numpy()
+    binary_res = (pred_res >= 0.5)
+    print("Binary res: \n", binary_res.shape)
+    print("Binary res: \n", binary_res)
+    sorted_binary = binary_res[order][:, order]
+    print(sorted_binary)
+    sorted_sigmoid = pred_res[order][:, order]
+
+    print(sorted_sigmoid)
+    print("The true linkages are:")
+    value_list = []
+    for i in range(1, len(order)):
+        value_list.append(sorted_sigmoid[i-1, i])
+    print(np.array(value_list))
+    bool_list = []
+    for i in range(1, len(order)):
+        bool_list.append(sorted_binary[i-1, i])
+    print(np.array(bool_list))
     return sigmoid_pred
 
 
 def main():
     # transformer = Transformer(22, 22).to(device)
-    linkage_model = LinkageFormer(n_layers=2)
+    linkage_model = MLP(input_dim=6)
     linkage_model = torch.nn.DataParallel(linkage_model, device_ids=device_ids)
-    linkage_model = linkage_model.cuda(device=device_ids[0])        
+    linkage_model = linkage_model.cuda(device=device_ids[0]) 
 
-    optimizer = ScheduledOptim(
-        optim.Adam(linkage_model.parameters(), betas=(0.9, 0.98), eps=1e-09),
-        cfg.lr_mul, cfg.d_model, cfg.n_warmup_steps)
+    if cfg.warmup:
+        optimizer = ScheduledOptim(
+            optim.Adam(linkage_model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+            cfg.lr_mul, cfg.d_model, cfg.n_warmup_steps)
+    else:
+        print("**** Using fixed optimiizer ****")
+        # optimizer = ScheduledOptim(
+        #     optim.Adam(linkage_model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+        #     cfg.lr, cfg.d_model, cfg.n_warmup_steps, cfg.warmup)
+        optimizer = ScheduledOptim(
+            optim.SGD(linkage_model.parameters(), lr=cfg.lr, momentum=0.9, dampening=0.5, weight_decay=0.01, nesterov=False),
+            cfg.lr, cfg.d_model, cfg.n_warmup_steps, cfg.warmup)
     
-
-    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', using_gt=False, shuffle=True, random_crop=False, crop_bins=8)
-    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False, shuffle=False, random_crop=False, crop_bins=8)
-    test_set  = LinkageSet(index_csv='../datas/tracing_data2/test.csv',  using_gt=False, shuffle=False)
+    train_set = MLP_Dataset(index_csv='../datas/tracing_data2/train.csv', multi_class=False, using_gt=cfg.using_gt, shuffle=True, coords_norm=True,)
+    valid_set = MLP_Dataset(index_csv='../datas/tracing_data2/valid.csv', multi_class=False, using_gt=cfg.using_gt, shuffle=False, coords_norm=True,)
+    test_set  = MLP_Dataset(index_csv='../datas/tracing_data2/test.csv',  multi_class=False, using_gt=cfg.using_gt, shuffle=False, coords_norm=True,)
 
     train_loader = DataLoader(train_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids), num_workers=4)
     valid_loader = DataLoader(valid_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids), num_workers=4)
@@ -417,48 +471,3 @@ def main():
 if __name__ == "__main__":
     # model = Transformer(n_src_vocab=22,  n_trg_vocab=22)
     main()
-
-    # for i in range(1000):
-    #     test_valid(i)--
-
-
-    # gpu_id = "0, 1"
-    # os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    # print('gpu ID is ', str(gpu_id))
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-    # the_dataset = AminoFeatureDataset(index_csv='../datas/tracing_data/test.csv')
-    # the_loader  = DataLoader(the_dataset, batch_size=1)
-
-    # encoder = Encoder(n_amino_feature=22, d_amino_vec=8, n_layers=6, n_head=8, d_k=512, d_v=512,
-    #                         d_model=512, d_inner=2048, pad_idx=0, dropout=0.1).to(device)
-    # decoder = Decoder(n_amino_feature=22, d_amino_vec=8, n_layers=6, n_head=8, d_k=512, d_v=512,
-    #                     d_model=512, d_inner=2048, pad_idx=0, dropout=0.1).to(device)
-    # model = Transformer(n_src_vocab=22, n_trg_vocab=22).to(device)
-
-    # linkage_model = LinkageFormer().to(device)
-    # the_dataset = LinkageSet(index_csv='../datas/tracing_data/test.csv', using_gt=False)
-    # the_loader  = DataLoader(the_dataset, batch_size=1)
-    # encoder = Encoder(n_amino_feature=21, d_amino_vec=8, n_layers=6, n_head=8, d_k=512, d_v=512,
-    #                         d_model=512, d_inner=2048, pad_idx=0, dropout=0.1).to(device)
-
-    # for idx, data in enumerate(the_loader):
-    #     seq_data_array = data[0].to(torch.float32).to(device)
-    #     print("Encoder Seq shape: ", seq_data_array.shape)
-    #     labels = data[1].to(torch.float32).to(device)
-    #     print("Decoder Seq shape: ", labels.shape)
-    #     amino_nums = data[2]
-    #     print("amino nums: ", amino_nums)
-    #     # print(seq_data_array)
-    #     print(labels)
-        
-    #     src_mask = get_pad_mask(seq_data_array[:, :, 0], pad_idx=0)                 # TODO: check masks
-
-    #     output = linkage_model(seq_data_array, src_mask)
-    #     print(output)
-    #     print(output.shape)
-
-    #     loss = cal_performance(output, labels)
-    #     print(loss.item())
-    #     break

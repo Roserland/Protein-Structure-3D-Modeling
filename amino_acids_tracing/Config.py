@@ -14,7 +14,7 @@ class Config:
         # Training paramters
         self.bacth_size = 64
         self.num_epochs = 10000
-        self.lr = 0.0001 * 2
+        self.lr = 0.0001
         self.d_model = 512
         self.lr_mul = 0.99 * math.sqrt(self.bacth_size / 16)
         self.n_warmup_steps = 4000 / 4
@@ -28,6 +28,9 @@ class Config:
 
         # label smoothing
         self.label_smoothing=False
+
+        self.using_gt = False
+        self.warmup = False
 
         # model saving
         self.save_mode = "all"

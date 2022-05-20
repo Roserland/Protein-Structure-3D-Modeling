@@ -5,6 +5,7 @@
                     对于给定的集合,  先预测其  type-seq
                     然后通过后处理等方法， 得到整个的sequence prediction
 """
+from audioop import bias
 from turtle import forward
 from numpy import diag_indices
 import numpy as np
@@ -19,12 +20,13 @@ from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 class ScheduledOptim():
     '''A simple wrapper class for learning rate scheduling'''
 
-    def __init__(self, optimizer, lr_mul, d_model, n_warmup_steps):
+    def __init__(self, optimizer, lr_mul, d_model, n_warmup_steps, using_warmup=False):
         self._optimizer = optimizer
         self.lr_mul = lr_mul
         self.d_model = d_model
         self.n_warmup_steps = n_warmup_steps
         self.n_steps = 0
+        self.using_warmup = using_warmup
 
 
     def step_and_update_lr(self):
@@ -48,7 +50,10 @@ class ScheduledOptim():
         ''' Learning rate scheduling per step '''
 
         self.n_steps += 1
-        lr = self.lr_mul * self._get_lr_scale()
+        if self.using_warmup:
+            lr = self.lr_mul * self._get_lr_scale()
+        else:
+            lr = self.lr_mul
 
         for param_group in self._optimizer.param_groups:
             param_group['lr'] = lr
@@ -173,7 +178,7 @@ class MultiHeadAttention(nn.Module):
 
         output = torch.matmul(attn, V_).transpose(
             1, 2).contiguous().view(bs, -1, self.h * self.d_k)          # Batch x len x (heads * d_model)
-        output = self.dropout(self.out_proj(output))
+        output = self.dropout(self.out_proj(output))   
         output = self.layerNorm(output + residual)
 
         return output, attn
@@ -241,11 +246,15 @@ def get_subsequent_mask(seq):
 
 class Encoder(nn.Module):
     def __init__(self, n_amino_feature, d_amino_vec, n_layers, n_head, d_k, d_v,
-                 d_model, d_inner, pad_idx, dropout=0.1, n_posititon=None, scale_emb=False, max_len=512) -> None:
+                 d_model, d_inner, pad_idx, using_PE=False,
+                 dropout=0.1, n_posititon=None, scale_emb=False, max_len=512) -> None:
         super().__init__()
 
         self.src_amino_vec = nn.Embedding(n_amino_feature, d_amino_vec, padding_idx=pad_idx)    # n_amino_feature set to 22, d_amino_vec set to 8
         self.position_eonc = Encoder_Embedding(fea_dim=d_model, max_seq_len=max_len)            # TODO: change the Encoding format
+        self.using_pe = using_PE
+        if using_PE:
+            self.position_enc = PositionalEncoding(d_model, n_position=512)
         self.linearB = nn.Linear(20, d_model)           # 20 = 8 + 12
         self.dropout = nn.Dropout(dropout)
         self.layer_stack = nn.ModuleList([
@@ -272,7 +281,11 @@ class Encoder(nn.Module):
 
         if self.scale_emb:
             enc_output *= self.d_model ** 0.5
-        enc_output = self.dropout(enc_output)
+        
+        if self.using_pe:
+            enc_output = self.dropout(self.position_enc(enc_output))
+        else:
+            enc_output = self.dropout(enc_output)
         enc_output = self.layer_norm(enc_output)
 
         for enc_layer in self.layer_stack:
@@ -286,7 +299,8 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(self, n_amino_feature, d_amino_vec, n_layers, n_head, d_k, d_v,
-                       d_model, d_inner, pad_idx, dropout=0.1, n_posititon=None, scale_emb=False, max_len=512) -> None:
+                       d_model, d_inner, pad_idx, using_PE=True,
+                       dropout=0.1, n_posititon=None, scale_emb=False, max_len=512) -> None:
         super().__init__()
         self.src_amino_vec = nn.Embedding(n_amino_feature, d_amino_vec, padding_idx=pad_idx)    # n_amino_feature set to 22, d_amino_vec set to 8
         self.position_enc = PositionalEncoding(d_model, n_position=512)
@@ -404,6 +418,7 @@ class LinkageFormer(nn.Module):
                  n_src_vocab=21, n_trg_vocab=21, src_pad_idx=0, trg_pad_idx=0, 
                  d_amino_type_vec=8, d_model=512, d_inner=2048, 
                  n_layers=6, n_head=8, d_k=64, d_v=64, dropout=0.1, n_position=512,
+                 scale_emb=True,
                  scale_emb_or_prj='prj') -> None:
 
         super().__init__()
@@ -413,23 +428,130 @@ class LinkageFormer(nn.Module):
         self.src_pad_idx = src_pad_idx
 
         self.d_model = d_model
+        self.scale_emb = scale_emb
 
         self.encoder = Encoder(
             n_amino_feature=n_src_vocab, d_amino_vec=d_amino_type_vec, n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
-            d_model=d_model, d_inner=d_inner, pad_idx=src_pad_idx, dropout=dropout, n_posititon=n_position,         
-            scale_emb='none',
+            d_model=d_model, d_inner=d_inner, using_PE=False,
+            pad_idx=src_pad_idx, dropout=dropout, n_posititon=n_position,         
+            scale_emb=self.scale_emb,
         )
 
         self.link_vec_len = n_position          # the linkage vector length is equal to max_len, or the sequence len
 
-        self.last_linear = nn.Linear(d_model, self.link_vec_len, bias=False)
+        # self.last_linear = nn.Linear(d_model, d_model, bias=False)
+        # self.last_linear_1 = nn.Linear(d_model, d_model // 2, bias=False)
+        # self.last_linear_2 = nn.Linear(d_model // 2, self.link_vec_len, bias=False)
+        
+        self.mlp_head = nn.Sequential(nn.Linear(d_model, d_model*2, bias=False), 
+                                       nn.Dropout(0.5),
+                                       nn.Linear(d_model * 2, d_model * 4, bias=False), 
+                                       nn.Dropout(0.5),
+                                       nn.Linear(d_model * 4, d_model, bias=False))
 
     def forward(self, src_seq, trg_seq):
         # trg_seq = None
         src_mask = get_pad_mask(src_seq[:, :, 0], self.src_pad_idx)              # just ignore the 'empty' class
 
         enc_output = self.encoder(src_seq, src_mask)
-        output = self.last_linear(enc_output)
+        output = enc_output
+
+        # output = self.last_linear(enc_output)
+
+        # output = self.last_linear_1(enc_output)
+        # output = F.relu(output)
+        # output = self.last_linear_2(output)
+        output = self.mlp_head(output)
+
+        return output
+
+
+class Encoder2(nn.Module):
+    def __init__(self, n_amino_feature, d_amino_vec, n_layers, n_head, d_k, d_v,
+                 d_model, d_inner, pad_idx, dropout=0.1, n_posititon=None, scale_emb=False, max_len=512) -> None:
+        super().__init__()
+
+        self.src_amino_vec = nn.Embedding(n_amino_feature, d_amino_vec, padding_idx=pad_idx)    # n_amino_feature set to 22, d_amino_vec set to 8
+        self.position_eonc = Encoder_Embedding(fea_dim=d_model, max_seq_len=max_len)            # TODO: change the Encoding format
+        self.linearB = nn.Linear(12, d_model)           # 20 = 8 + 12
+        self.dropout = nn.Dropout(dropout)
+        self.layer_stack = nn.ModuleList([
+            EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)
+        ])
+        self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
+        self.scale_emb = scale_emb
+        self.d_model = d_model
+    
+    def forward(self, src_seq, src_mask, return_attns = False):
+        bs, seq_len, dims = src_seq.shape
+        assert dims == 13
+        # embeding type and concat
+        amino_type_vec = self.src_amino_vec(src_seq[:, :, 0].long())
+        # fea_vec = torch.cat([amino_type_vec, src_seq[:, :, 1:]], dim=2)
+        fea_vec = src_seq[:, :, 1:]
+
+        enc_slf_attn_list = []
+
+        # enc_output = self.src_amino_vec(src_seq)
+        enc_output = self.linearB(fea_vec)
+
+        # Encoder Embedding
+        enc_output = self.position_eonc(enc_output)
+
+        if self.scale_emb:
+            enc_output *= self.d_model ** 0.5
+        enc_output = self.dropout(enc_output)
+        enc_output = self.layer_norm(enc_output)
+
+        for enc_layer in self.layer_stack:
+            enc_output, enc_slf_attn = enc_layer(enc_output, slf_attn_mask=src_mask)
+            enc_slf_attn_list += [enc_slf_attn] if return_attns else []
+        
+        if return_attns:
+            return enc_output, enc_slf_attn_list
+        return enc_output
+        
+
+class LinkageFormer2(nn.Module):
+    def __init__(self, 
+                 n_src_vocab=21, n_trg_vocab=21, src_pad_idx=0, trg_pad_idx=0, 
+                 d_amino_type_vec=8, d_model=512, d_inner=2048, 
+                 n_layers=6, n_head=8, d_k=64, d_v=64, dropout=0.1, n_position=512,
+                 scale_emb=True,
+                 scale_emb_or_prj='prj') -> None:
+
+        super().__init__()
+
+        self.n_src_vocab = n_src_vocab  # default set to 21 (1-20 as type, 1 as padding)
+        self.n_trg_vocab = n_trg_vocab
+        self.src_pad_idx = src_pad_idx
+
+        self.d_model = d_model
+        self.scale_emb = scale_emb
+
+        self.encoder = Encoder2(
+            n_amino_feature=n_src_vocab, d_amino_vec=d_amino_type_vec, n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
+            d_model=d_model, d_inner=d_inner, pad_idx=src_pad_idx, dropout=dropout, n_posititon=n_position,         
+            scale_emb=self.scale_emb,
+        )
+
+        self.link_vec_len = n_position          # the linkage vector length is equal to max_len, or the sequence len
+
+        self.last_linear = nn.Linear(d_model, self.link_vec_len, bias=False)
+        self.last_linear_1 = nn.Linear(d_model, d_model // 2, bias=False)
+        self.last_linear_2 = nn.Linear(d_model // 2, self.link_vec_len, bias=False)
+
+    def forward(self, src_seq, trg_seq):
+        # trg_seq = None
+        src_mask = get_pad_mask(src_seq[:, :, 0], self.src_pad_idx)              # just ignore the 'empty' class
+
+        enc_output = self.encoder(src_seq, src_mask)
+        output = enc_output
+        # output = self.last_linear(enc_output)
+
+        # output = self.last_linear_1(enc_output)
+        # output = F.relu(output)
+        # output = self.last_linear_2(output)
 
         return output
 

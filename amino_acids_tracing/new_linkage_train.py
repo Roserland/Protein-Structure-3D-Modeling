@@ -2,10 +2,11 @@ import argparse
 from asyncio.log import logger
 import os, time, datetime, math, random
 from turtle import forward
+from wsgiref.simple_server import demo_app
 
 from numpy import gradient
 from TraceFormer import Transformer, get_pad_mask, get_subsequent_mask, ScheduledOptim, Encoder, Decoder, LinkageFormer
-from amino_fea_loader import AminoFeatureDataset, LinkageSet
+from my_datasets import LinkageSet
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from torch.autograd import gradcheck
 from tqdm import tqdm
@@ -33,33 +34,48 @@ device_ids = [0, 1]
 seq_clf_loss_weight = 1.0
 seq_pos_loss_weight = 1.0
 
-# cfg = Config()
+cfg = Config()
 
 parser = argparse.ArgumentParser(description="Amino-acids Affinity Training")
 parser.add_argument("--lr", type=float, default=0.0001)
+parser.add_argument("--lr_mul", type=float, default=0.99)
 parser.add_argument("--n_warmup_epochs", type=int, default=2000)
 parser.add_argument("--batch_size", type=int, default=16)
 parser.add_argument("--focal_alpha", type=float, default=0.5)
 parser.add_argument("--focal_gamma", type=float, default=2)
+parser.add_argument("--using_gt", action="store_true", default=False)
+parser.add_argument("--warm_up", action="store_true", default=False)
 args = parser.parse_args()
 
-# python linkage_train.py --n_warmup_epochs=2000 --batch_size=16 --focal_gamma=1.0
+cfg = Config()
+cfg.lr = args.lr
+cfg.lr_mul = args.lr_mul
+cfg.n_warmup_steps = args.n_warmup_epochs
+cfg.bacth_size = args.batch_size
+cfg.alpha = args.focal_alpha
+cfg.gamma = args.focal_gamma
+cfg.using_gt = args.using_gt
+cfg.warmup = args.warm_up
+
+# python new_linkage_train.py --n_warmup_epochs=2000 --batch_size=4 --focal_gamma=2.0 --lr=0.0001 --warm_up
 
 
 # TODO: 1. BCE loss with FocalLoss
 #       2. Run the training process 
 #       3. 
 
-cfg = Config()
-cfg.lr = args.lr
-cfg.lr_mul = args.lr
-cfg.n_warmup_steps = args.n_warmup_epochs
-cfg.bacth_size = args.batch_size
-cfg.alpha = args.focal_alpha
-cfg.gamma = args.focal_gamma
+# cfg = Config()
+# cfg.lr = args.lr
+# cfg.lr_mul = args.lr_mul
+# cfg.n_warmup_steps = args.n_warmup_epochs
+# cfg.bacth_size = args.batch_size
+# cfg.alpha = args.focal_alpha
+# cfg.gamma = args.focal_gamma
+# cfg.using_gt = args.using_gt
+# cfg.warmup = args.warmup
 
 
-def cal_performance(pred_linkage, gt_linkage, ignore_index=2, focal_loss=True, 
+def cal_performance(pred_linkage, gt_linkage, ignore_index=-1, focal_loss=True, 
                     seq_weight=1.0, pos_weight=1.0,  
                     smoothing=False):
     bs, seq_len, dim = pred_linkage.shape
@@ -181,7 +197,7 @@ def train_epoch(linkage_model, training_data, optimizer, opt, device, smoothing)
         # backward and update parameters
         # loss, link_num, non_link_num, len(gt_linking), len(gt_non_linking)
         _pred, _gt, link_loss, tn, fp, fn, tp, total = \
-            cal_performance(pred_linkage, labels, ignore_index=2, focal_loss=True)
+            cal_performance(pred_linkage, labels, ignore_index=-1, focal_loss=True)
 
         loss = link_loss
         loss.backward()
@@ -248,7 +264,7 @@ def eval_epoch(linkage_model, valid_data,  device=device, phase="Validation"):
             # backward and update parameters
             # loss, link_num, non_link_num, len(gt_linking), len(gt_non_linking)
             _pred, _gt, link_loss, tn, fp, fn, tp, total = \
-                cal_performance(pred_linkage, labels, ignore_index=2, focal_loss=True)
+                cal_performance(pred_linkage, labels, ignore_index=-1, focal_loss=True)
 
             loss = link_loss
 
@@ -353,7 +369,7 @@ def train(model, training_data, validation_data, test_data, optimizer, cfg, smoo
             tb_writer.add_scalars('accuracy', {'train': train_acc*100, 'val': train_acc*100}, epoch_i)
             tb_writer.add_scalar('learning_rate', lr, epoch_i)
         
-        if ((epoch_i+1) % 5 == 0):
+        if ((epoch_i+1) % 5 == 1):
             start = time.time()
             test_valid(model, protein_id='6Q29')
 
@@ -382,30 +398,62 @@ def test_valid(model, protein_id, max_len=512, pad=0, shuffle=False):
     src_mask = get_pad_mask(input_data[:, :, 0], pad_idx=0)                     # get mask
     print(amino_index_list)
     with torch.no_grad():
-        pred_linkage = model(input_data, src_mask)
+        pred_linkage = model(input_data, src_mask)[0]
+        print("Original Output of the Model is :\n", pred_linkage)
         sigmoid_pred = torch.sigmoid(pred_linkage)
     print(sigmoid_pred)
 
     order = np.argsort(amino_index_list)
-    pred_res = sigmoid_pred[:len(order), :len(order)]
-    binart_res = (sigmoid_pred >= 0.5)
+    print(order.shape)
+    print("Order:\n", order)
+    pred_res = sigmoid_pred[:len(order), :len(order)].cpu().numpy()
+    binary_res = (pred_res >= 0.5)
+    print("Binary res: \n", binary_res.shape)
+    print("Binary res: \n", binary_res)
+    sorted_binary = binary_res[order][:, order]
+    print(sorted_binary)
+    sorted_sigmoid = pred_res[order][:, order]
+
+    print(sorted_sigmoid)
+    print("The true linkages are:")
+    value_list = []
+    for i in range(1, len(order)):
+        value_list.append(sorted_sigmoid[i-1, i])
+    print(np.array(value_list))
+    bool_list = []
+    for i in range(1, len(order)):
+        bool_list.append(sorted_binary[i-1, i])
+    print(np.array(bool_list))
     return sigmoid_pred
 
 
 def main():
     # transformer = Transformer(22, 22).to(device)
-    linkage_model = LinkageFormer(n_layers=2)
+    linkage_model = LinkageFormer(n_layers=1)
     linkage_model = torch.nn.DataParallel(linkage_model, device_ids=device_ids)
-    linkage_model = linkage_model.cuda(device=device_ids[0])        
+    linkage_model = linkage_model.cuda(device=device_ids[0]) 
 
-    optimizer = ScheduledOptim(
-        optim.Adam(linkage_model.parameters(), betas=(0.9, 0.98), eps=1e-09),
-        cfg.lr_mul, cfg.d_model, cfg.n_warmup_steps)
+    # add 
+    print("Config warmup: ", cfg.warmup)
+    if cfg.warmup:
+        print("Using warm_up: ", cfg.warmup)
+        optimizer = ScheduledOptim(
+            optim.Adam(linkage_model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+            cfg.lr_mul, cfg.d_model, cfg.n_warmup_steps, cfg.warmup)
+    else:
+        print("**** Using fixed optimiizer ****")
+        # optimizer = ScheduledOptim(
+        #     optim.Adam(linkage_model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+        #     cfg.lr, cfg.d_model, cfg.n_warmup_steps, cfg.warmup)
+        optimizer = ScheduledOptim(
+            optim.SGD(linkage_model.parameters(), lr=cfg.lr, momentum=0.9, dampening=0.5, weight_decay=0.01, nesterov=False),
+            cfg.lr, cfg.d_model, cfg.n_warmup_steps, cfg.warmup)
     
-
-    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', using_gt=False, shuffle=True, random_crop=False, crop_bins=8)
-    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', using_gt=False, shuffle=False, random_crop=False, crop_bins=8)
-    test_set  = LinkageSet(index_csv='../datas/tracing_data2/test.csv',  using_gt=False, shuffle=False)
+    train_set = LinkageSet(index_csv='../datas/tracing_data2/train.csv', multi_class=False, using_gt=False, shuffle=True, coors_norm=True,
+                                                                         random_crop=False, crop_bins=8)
+    valid_set = LinkageSet(index_csv='../datas/tracing_data2/valid.csv', multi_class=False, using_gt=False, shuffle=False, coors_norm=True,
+                                                                         random_crop=False, crop_bins=8)
+    test_set  = LinkageSet(index_csv='../datas/tracing_data2/test.csv',  multi_class=False, using_gt=False, shuffle=False, coors_norm=True,)
 
     train_loader = DataLoader(train_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids), num_workers=4)
     valid_loader = DataLoader(valid_set, shuffle=True, batch_size=cfg.bacth_size * len(device_ids), num_workers=4)

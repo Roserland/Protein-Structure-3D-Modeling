@@ -495,10 +495,6 @@ class UniProtein():
         amino_file_list = os.listdir(self.data_dir)
         self.amino_file_list = np.array(amino_file_list)                    # sort ?  In context with PDB order ? 
 
-        # TODO: When sorted, store the sorted index
-        # if self.shuffle:
-        #     random.shuffle(amino_file_list)
-
         # relative coodinates
         amino_index_list = []
         for i, amino_file in enumerate(amino_file_list):
@@ -522,8 +518,6 @@ class UniProtein():
         label_vec = np.load(self.label_file)
 
         self.gt_amino_num = len(label_vec)
-        # print("Protein: {}\t Tracked Nums: {}\t GT Nums: {}".format(
-        #     self.protein_id, self.tracked_acid_num, self.gt_amino_num))
         self.label_data = label_vec
 
     def load_gt_amino_seq_index(self, ):
@@ -586,14 +580,13 @@ class UniProtein():
         #     raise ValueError
         # rand_idx = np.arange(len(self.index_vec))
         np.random.shuffle(rand_idx)
-
         self.rand_idx = rand_idx
         self.rand_index_vec = self.index_vec[rand_idx]              # index 375 is out of bounds for axis 0 with size 375
 
         _gt = self.linkage_gt_square[rand_idx].T
         _gt = _gt[rand_idx].T
 
-        self.data_array = self.data_array[rand_idx]
+        self.data_array = self.data_array[rand_idx]                 # Attentention, No Need to Shuffle TWICE !!!
         self.label_data = self.label_data[rand_idx]
         self.shuffled_square_gt = _gt
     
@@ -672,7 +665,7 @@ class LinkageSet(Dataset):
         index_vec = t_protein.index_vec
         # print("All amino nums in Protein {} is {}".format(self.pids[index], index_vec[-1]))
 
-        amino_data_array = t_protein.data_array             # estimated data, extract from detected cube
+        amino_data_array = t_protein.data_array             # estimated data, extract from detected cube; Maybe shuffled if the 't_protein' has the 'shuffle' params 
         amino_data_gt = t_protein.label_data                # ground truth data, loaded from the .pdb file
         linkage_gt = t_protein.linkage_gt_square
         
@@ -690,7 +683,8 @@ class LinkageSet(Dataset):
             # np.random.shuffle(gt_index)
             shuffled_index_vec = t_protein.rand_index_vec
             shuffled_index = t_protein.rand_idx
-            amino_data_array = amino_data_array[shuffled_index]
+            # amino_data_array = amino_data_array[shuffled_index]
+            amino_data_array = t_protein.data_array         # has been shuffled
             linkage_gt = t_protein.shuffled_square_gt
 
         # also can shuffle after padding
