@@ -3,7 +3,7 @@
             2. Generate type-seq and correspondingly positions seperately
 
 """
-import os, tqdm, random
+import os, tqdm, random, json
 import torch
 import torch.nn as nn
 import torch.functional as F
@@ -13,6 +13,9 @@ from amino_fea_loader import AminoFeatureDataset, LinkageSet
 from Config import Config
 import numpy as np
 from linkage_train import cal_performance as _cal_performance
+from my_datasets import MLP_Protein
+from simple_models import MLP
+from PIL import Image
 
 cfg = Config()
 
@@ -241,45 +244,129 @@ def function_test():
     print("Mean: {}\t Sum: {}".format(loss_l2_mean, loss_l2_sum))
 
 
+class MLP_Linkage_Predictor():
+    def __init__(self, model, model_ckpnt_path=None) -> None:
+        self.model = model
+        self.cnkpt_path = model_ckpnt_path
+        self.fea_src_dir = '/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/'
+        self.label_src_dir = '/mnt/data/zxy/stage3_data/stage3_labels/'
+        self.label_linkage_dir = '/mnt/data/zxy/stage3_data/stage3_labels/'
+        self.image_dst_dir = './output_dir/mlp_res_imgs/'
+
+
+    def coordinates_normalization(self, datas, mean_std_params_file='../datas/params/coord_mean_std.json'):
+        length, dims = datas.shape
+        assert dims == 24 
+        with open(mean_std_params_file, 'r')  as j:
+            _params = json.load(j)
+        
+        x_mean_std = _params['x_mean_std']                  # TODO: Of cource, there face the same problem, the "X" axis and "Z" axis may be disordered
+        y_mean_std = _params['y_mean_std']                  # But the mean and std are not far from in X and Z, so, the impact is limmited in some way
+        z_mean_std = _params['z_mean_std']                  # DY: ATTENTION
+        
+        # with out type info
+        datas[:, 0::3] = (datas[:, 0::3] - x_mean_std[0])  / x_mean_std[1]
+        datas[:, 1::3] = (datas[:, 1::3] - y_mean_std[0])  / y_mean_std[1]
+        datas[:, 2::3] = (datas[:, 2::3] - z_mean_std[0])  / z_mean_std[1]
+
+        return datas
+    
+    def mask_data(self, data_array):
+        w = data_array.shape[0]
+        mask = np.ones((w, w)) - np.eye(w)
+        return data_array * mask
+    
+    def predict_amino_linkage(self, protein_id):
+        mlp_protein = MLP_Protein(protein_id=protein_id, method='concat', using_whole=True)
+
+        # the data in diag may not the valid data and may cause mistakes
+        data_array = mlp_protein.processed_data
+        gt_labels = mlp_protein.processed_label
+        print("Data_array shape: ", data_array.shape)
+        print("gt_labels  shape: ", gt_labels.shape)
+
+        data_array = self.coordinates_normalization(data_array)
+
+        predction = self.model(torch.from_numpy(data_array).float())
+        predction = torch.sigmoid(predction).detach().cpu().numpy()
+
+        w = int(len(gt_labels) ** 0.5)
+        self.data_width = w
+
+        _pred_image = predction.reshape((w, w))
+        print("_pred_image shape: ", _pred_image.shape)
+        print("_pred_image:", _pred_image)
+        _pred_image = self.mask_data(_pred_image)
+        print("_pred_image:", _pred_image)
+
+
+        # image_path = os.path.join(self.image_dst_dir, protein_id + ".png")
+        # img = Image.fromarray(_pred_image)
+        # img.save(image_path)
+
+        heatmap_image = (_pred_image * 255).astype(int)
+        heatmap_image = Image.fromarray(heatmap_image.astype('uint8'))
+        heatmap_image.save(os.path.join(self.image_dst_dir, "{}_heatmap.png".format(protein_id)))
+        thres_image  = (_pred_image >= 0.5).astype(int) * 255
+        thres_image = Image.fromarray(thres_image.astype('uint8'))
+        thres_image.save(os.path.join(self.image_dst_dir, "{}_binary_thres.png".format(protein_id)))
+
+    
+
 
 
 if __name__ == '__main__':
     # # function_test()
-    # print("GPU available: {}".format(torch.cuda.device_count()))
-    # gpu_id = "0"
-    # os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    # print("GPU available: {}".format(torch.cuda.device_count()))
+    print("GPU available: {}".format(torch.cuda.device_count()))
+    gpu_id = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    print("GPU available: {}".format(torch.cuda.device_count()))
 
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # device_ids = [0, 1]
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device_ids = [0, 1]
     # _inference_test(cfg, device)
 
 
-    linkage_model = LinkageFormer(n_layers=2)
-    linkage_model = nn.DataParallel(linkage_model)
+    # linkage_model = LinkageFormer(n_layers=2)
+    # linkage_model = nn.DataParallel(linkage_model)
 
-    ckpnt = torch.load(cfg.linkage_model_path)
-    _state_dict = ckpnt['model']
-    linkage_model.load_state_dict(_state_dict)
+    # ckpnt = torch.load(cfg.linkage_model_path)
+    # _state_dict = ckpnt['model']
+    # linkage_model.load_state_dict(_state_dict)
 
-    linkage_model.cuda(0)
+    # linkage_model.cuda(0)
     
-    # inference
-    print("\nPrediction Linkage...")
-    linkage_predictor = ProteinLinker(linkage_model)
+    # # inference
+    # print("\nPrediction Linkage...")
+    # linkage_predictor = ProteinLinker(linkage_model)
     
-    linkage_predictor.load_predicted_aminos(protein_id="6VV0")
-    link_res = linkage_predictor.predict_linkage()
+    # linkage_predictor.load_predicted_aminos(protein_id="6VV0")
+    # link_res = linkage_predictor.predict_linkage()
 
-    print(linkage_predictor.amino_index_list)
-    the_len = len(linkage_predictor.amino_index_list)
-    print("Detected nums: {}".format(the_len))
-    print(link_res.shape)
-    print(link_res)
+    # print(linkage_predictor.amino_index_list)
+    # the_len = len(linkage_predictor.amino_index_list)
+    # print("Detected nums: {}".format(the_len))
+    # print(link_res.shape)
+    # print(link_res)
     
-    print("Checking")
-    for i in range(1, the_len):
-        print(link_res[0][i][i-1])
-    print("\nThe padding part")
-    for i in range(the_len, 512):
-        print(link_res[0][i][i-1])
+    # print("Checking")
+    # for i in range(1, the_len):
+    #     print(link_res[0][i][i-1])
+    # print("\nThe padding part")
+    # for i in range(the_len, 512):
+    #     print(link_res[0][i][i-1])
+
+    # ===============================================================
+    # Section 3.
+    # MLP Linkage Inference Part
+    # Predict affinity matrix of a sets of protein amino-acid
+    # ===============================================================
+    mlp_model = MLP(input_dim=24)
+    mlp_model = torch.nn.DataParallel(mlp_model)
+    mlp_ckpnt = torch.load(cfg.mlp_model_path)
+    mlp_state_dict = mlp_ckpnt['model']
+    mlp_model.load_state_dict(mlp_state_dict)
+    mlp_model.cuda(0)
+
+    mlp_precitor = MLP_Linkage_Predictor(mlp_model)
+    mlp_precitor.predict_amino_linkage(protein_id="6XQ8")

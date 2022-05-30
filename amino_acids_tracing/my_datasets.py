@@ -376,6 +376,7 @@ class MLP_Protein(UniProtein):
                 fea_src_dir='/mnt/data/zxy/relat_coors_stage3-amino-keypoint-vectors/', 
                 label_src_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
                 label_linkage_dir='/mnt/data/zxy/stage3_data/stage3_labels/',
+                using_whole=False,
                 using_gt = False,
                 linakge_shuffle=False, dist_rescaling=True, sample_num=None, random_crop=False, crop_bins=10) -> None:
         super().__init__(protein_id, 512, block_index, re_generate, fea_src_dir, label_src_dir, label_linkage_dir, linakge_shuffle, dist_rescaling, sample_num, random_crop, crop_bins)
@@ -389,10 +390,15 @@ class MLP_Protein(UniProtein):
         else:
             if len(self.data_array) != len(self.label_data):
                 self._data_array = self.label_data
-            self._data_array = self.data_array
+            else:
+                self._data_array = self.data_array
 
         # choose a consequent amino-acid as the inpurt source
-        self.block_len =  128                                   # 128 * 128 concatenated arrays will be generated 
+        if using_whole:
+            self.block_len = len(self._data_array)
+        else:
+            self.block_len =  128                                   # 128 * 128 concatenated arrays will be generated 
+        # self.block_len =  512                                     # 512 * 512     #  DY-ATTETNION
         self.data_len = self._data_array.shape[0]
         if self.block_len >= self.data_len:
             self.start_index = 0

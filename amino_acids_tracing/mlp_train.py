@@ -192,10 +192,10 @@ def train_epoch(mlp_model, training_data, optimizer, opt, device, smoothing):
         seq_data_array = batch_data[0].to(torch.float32).cuda(device=device_ids[0])     # batch_size * 4096 * 24
         labels = batch_data[1].to(torch.float32).cuda(device=device_ids[0])             # batch x seq_len(512) x 13
                                                                                         # Need to add a BOS token
-        seq_data_array = torch.cat((seq_data_array[:, :, :3], seq_data_array[:, :, 12:15]), dim=2)
-        seq_data_array = seq_data_array.reshape(-1, 6)
+        # seq_data_array = torch.cat((seq_data_array[:, :, :3], seq_data_array[:, :, 12:15]), dim=2)
+        # seq_data_array = seq_data_array.reshape(-1, 6)
 
-        # seq_data_array = seq_data_array.reshape(-1, 24)
+        seq_data_array = seq_data_array.reshape(-1, 24)
         labels = labels.reshape(-1)
 
         # forward
@@ -256,6 +256,7 @@ def eval_epoch(mlp_model, valid_data,  device=device, phase="Validation"):
     all_gts = np.array([])
 
     desc = '  - (Validing)   '
+    printer_tag = True
     with torch.no_grad():
         for batch_data in tqdm(valid_data, mininterval=2, desc=desc, leave=False):
 
@@ -263,10 +264,11 @@ def eval_epoch(mlp_model, valid_data,  device=device, phase="Validation"):
             seq_data_array = batch_data[0].to(torch.float32).cuda(device=device_ids[0])     #.to(device)
             labels = batch_data[1].to(torch.float32).cuda(device=device_ids[0])             # batch x seq_len(512) x 13
 
-            seq_data_array = torch.cat((seq_data_array[:, :, :3], seq_data_array[:, :, 12:15]), dim=2)
-            seq_data_array = seq_data_array.reshape(-1, 6)
+            # just using Ca
+            # seq_data_array = torch.cat((seq_data_array[:, :, :3], seq_data_array[:, :, 12:15]), dim=2)
+            # seq_data_array = seq_data_array.reshape(-1, 6)
             
-            # seq_data_array = seq_data_array.reshape(-1, 24)
+            seq_data_array = seq_data_array.reshape(-1, 24)
             labels = labels.reshape(-1)
 
             # forward
@@ -276,6 +278,13 @@ def eval_epoch(mlp_model, valid_data,  device=device, phase="Validation"):
             # loss, link_num, non_link_num, len(gt_linking), len(gt_non_linking)
             _pred, _gt, link_loss, tn, fp, fn, tp, total = \
                 cal_performance(pred_linkage, labels, ignore_index=-1, focal_loss=True)
+            
+            if printer_tag:
+                printer_tag = False
+                _length = len(_gt)
+                rand_idx = torch.randint(0, _length, (50,))
+                print("Pred:\t ", _pred.shape, "\n", _pred[rand_idx])
+                print("GT:\t ", _gt.shape, "\n", _gt[rand_idx])
 
             loss = link_loss
 
@@ -356,10 +365,12 @@ def train(model, training_data, validation_data, test_data, optimizer, cfg, smoo
         checkpoint = {'epoch': epoch_i, 'settings': cfg, 'model': model.state_dict()}
 
         if cfg.save_mode == 'all':
-            model_name = 'model_accu_{accu:3.3f}.chkpt'.format(accu=100*valid_acc)
+            # model_name = 'model_accu_{accu:3.3f}.chkpt'.format(accu=100*valid_acc)
+            model_name = 'model_accu_{accu:3.3f}_recall_{recl:3.3f}.chkpt'.format(accu=100*valid_acc, recl=100*valid_recall)
             torch.save(checkpoint, model_name)
             if valid_acc == 1.0:
-                best_model_name = "model_accu_100.000_pos_los{}.chkpt".format(valid_loss)
+                # best_model_name = "model_accu_100.000_pos_los{}.chkpt".format(valid_loss)
+                best_model_name = 'model_best_accu_{accu:3.3f}_recall_{recl:3.3f}.chkpt'.format(accu=100*valid_acc, recl=100*valid_recall)
                 torch.save(checkpoint, best_model_name)
         elif cfg.save_mode == 'best':
             model_name = 'model.chkpt'
@@ -439,8 +450,7 @@ def test_valid(model, protein_id, max_len=512, pad=0, shuffle=False):
 
 
 def main():
-    # transformer = Transformer(22, 22).to(device)
-    linkage_model = MLP(input_dim=6)
+    linkage_model = MLP(input_dim=24)
     linkage_model = torch.nn.DataParallel(linkage_model, device_ids=device_ids)
     linkage_model = linkage_model.cuda(device=device_ids[0]) 
 

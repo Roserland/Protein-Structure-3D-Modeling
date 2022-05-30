@@ -298,7 +298,7 @@ if __name__ == '__main__':
     core_size = core_size
 
     # os.makedirs(args.pp_dir, exist_ok=True)
-    args.EMdata_dir = "/Volumes/RS/amino-acid-detection/EMdata_dir/400_500"
+    # args.EMdata_dir = "/Volumes/RS/amino-acid-detection/EMdata_dir/400_500"
     args.EMdata_dir = "/mnt/data/zxy/amino-acid-detection/EMdata_dir/400_500"
     data_root_dir = "/mnt/data/zxy/amino-acid-detection//test_data"
     for pdb_id in os.listdir(args.EMdata_dir):

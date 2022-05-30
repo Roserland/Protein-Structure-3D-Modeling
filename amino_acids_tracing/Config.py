@@ -36,10 +36,14 @@ class Config:
         self.save_mode = "all"
         # self.best_model_path = './ckpnts_dir/2022-04-02-2145/model_accu_99.693.chkpt'
         self.best_model_path = './ckpnts_dir/2022-04-06-1700/model_accu_100.000.chkpt'
-        self.linkage_model_path = './ckpnts_dir/2022-05-04/model_accu_99.996.chkpt'
+        # self.linkage_model_path = './ckpnts_dir/2022-05-04/model_accu_99.996.chkpt'
         # self.linkage_model_path = './ckpnts_dir/2022-05-06-0000/model_accu_99.996.chkpt'
 
-        self.model_output_dir = './ckpnts_dir/2022-04-06-1700/'
+        # mlp linkage model path
+        self.mlp_model_path = './ckpnts_dir/2022-05-20-1600/model_accu_99.964.chkpt'
+        # self.mlp_model_path = './model_accu_99.971.chkpt'
+
+        self.model_output_dir = './ckpnts_dir/'
 
         # token settings
         self.pad_idx = 0.0

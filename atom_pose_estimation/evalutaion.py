@@ -6,7 +6,7 @@
 import imp
 import math
 from datetime import timedelta
-
+import xlwt
 # from postprocessing import pdb_reader_writer
 from pdb_utils import pdb_reader_writer
 
@@ -17,7 +17,7 @@ class Evaluator:
         self.evaluation_results = []
         self.input_path = input_path
 
-    def evaluate(self, emdb_id, predicted_file, gt_file, execution_time):
+    def evaluate(self, emdb_id, predicted_file, gt_file, execution_time=None):
         """
         This method finds the closest pred_ca/gt_ca pair in the entirestructure. 
         Then removes them from the set and continues to find the next closest pair 
@@ -130,7 +130,7 @@ class Evaluator:
                                                         execution_time,
                                                         incorrect / modeled_ca))
 
-    def create_report(self, output_path, execution_time):
+    def create_report(self, output_path, execution_time=None):
         """Creates excel document containing evaluation reports"""
         # Don't create report if there are no evaluation results
         if not self.evaluation_results:
@@ -149,7 +149,7 @@ class Evaluator:
         sh.write(0, 5, 'RMSD')
         sh.write(0, 6, 'Incorrect')
         sh.write(0, 7, 'FP')
-        sh.write(0, 8, 'Execution Time')
+        # sh.write(0, 8, 'Execution Time')
 
         for i in range(len(self.evaluation_results)):
             sh.write(1 + i, 0, self.evaluation_results[i].name)
@@ -160,19 +160,19 @@ class Evaluator:
             sh.write(1 + i, 5, self.evaluation_results[i].rmsd)
             sh.write(1 + i, 6, self.evaluation_results[i].num_incorrect)
             sh.write(1 + i, 7, self.evaluation_results[i].fp_per)
-            sh.write(1 + i, 8, str(timedelta(seconds=int(self.evaluation_results[i].execution_time))))
+            # sh.write(1 + i, 8, str(timedelta(seconds=int(self.evaluation_results[i].execution_time))))
 
         rmsd_avg = sum(r.rmsd for r in self.evaluation_results) / len(self.evaluation_results)
         matching_ca_per_avg = sum(r.matching_ca_per for r in self.evaluation_results) / len(self.evaluation_results)
-        execution_time_avg = sum(r.execution_time for r in self.evaluation_results) / len(self.evaluation_results)
+        # execution_time_avg = sum(r.execution_time for r in self.evaluation_results) / len(self.evaluation_results)
         fp_avg = sum(r.fp_per for r in self.evaluation_results) / len(self.evaluation_results)
         sh.write(len(self.evaluation_results) + 1, 0, 'Avg.')
         sh.write(len(self.evaluation_results) + 1, 4, matching_ca_per_avg)
         sh.write(len(self.evaluation_results) + 1, 5, rmsd_avg)
         sh.write(len(self.evaluation_results) + 1, 7, fp_avg)
-        sh.write(len(self.evaluation_results) + 1, 8, str(timedelta(seconds=int(execution_time_avg))))
+        # sh.write(len(self.evaluation_results) + 1, 8, str(timedelta(seconds=int(execution_time_avg))))
         sh.write(len(self.evaluation_results) + 2, 0, 'Total')
-        sh.write(len(self.evaluation_results) + 2, 8, str(timedelta(seconds=int(execution_time))))
+        # sh.write(len(self.evaluation_results) + 2, 8, str(timedelta(seconds=int(execution_time))))
 
         book.save(output_path + 'results.xls')
 

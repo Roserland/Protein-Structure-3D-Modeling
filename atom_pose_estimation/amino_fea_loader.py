@@ -141,7 +141,8 @@ def generate_input_data(model, index_csv='./datas/split/train.csv', save_dir='/m
         pred_O  = de_normalize(O_output[0].detach().cpu().numpy(), upper_left_corner, lower_right_corner, _offset)
         # integrate type and 4 key point atoms positon
         fea_vec = np.zeros(13)      # 20  +  4 * 3
-        fea_vec[-12:] = np.concatenate([pred_Ca, pred_N, pred_C, pred_O]) / 236.0
+        fea_vec[-12:] = np.concatenate([pred_Ca, pred_N, pred_C, pred_O]) / 236.0       # Why 236 here ---> Its after de_normalize, and the coords has been in [0, 236] already
+                                                                                        # 
         fea_vec[0] = AMINO_ACID_DICT[amino_type] + 1
         if((fea_vec[-12:] < 0).sum() > 0 or (fea_vec[-12:] > 1).sum() > 0):
             # break
