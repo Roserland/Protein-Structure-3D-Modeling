@@ -1,0 +1,16 @@
+{
+    "epochs":50,
+    "batch_size":32,
+    "learning_rate":0.0001,
+    "model":"unet_model",
+    "output_channel":2,
+    "weight":[0.0001, 1],
+    "type":"backbone",
+    "dataset":"simulation",
+
+    "backbone_mode": "using_atom_O",
+
+    "save_best": true,
+    "best_metric": "F1",
+    "init_best": 0.0
+}
